@@ -1,11 +1,11 @@
 import json
 import threading
+import time
 
 import rclpy
 from rclpy.node import Node
-from rclpy.parameter import Parameter
 
-from std_msgs.msg import Float32MultiArray, Int32MultiArray, Float32
+from std_msgs.msg import Float32MultiArray
 
 import serial
 
@@ -15,39 +15,25 @@ class ESP32Bridge(Node):
         super().__init__('esp32_bridge')
 
         # Parameters
-        self.declare_parameter('port', '/dev/ttyUSB0')
+        self.declare_parameter('port', '/dev/ttyACM0')
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('timeout', 0.05)
 
-        port = self.get_parameter('port').get_parameter_value().string_value
-        baudrate = self.get_parameter('baudrate').get_parameter_value().integer_value
-        timeout = self.get_parameter('timeout').get_parameter_value().double_value
+        # Read parameters and store in self.*
+        self.port = self.get_parameter('port').get_parameter_value().string_value
+        self.baudrate = self.get_parameter('baudrate').get_parameter_value().integer_value
+        self.timeout = self.get_parameter('timeout').get_parameter_value().double_value
 
-        try:
-            self.ser = serial.Serial(
-                port=port,
-                baudrate=baudrate,
-                timeout=timeout
-            )
-        except serial.SerialException as e:
-            self.get_logger().error(f'Failed to open serial port {port}: {e}')
-            raise e
+        self.ser = None
 
-        self.get_logger().info(f'Opened serial port {port} at {baudrate} baud')
-
-        # Publishers for sensors
-        self.pub_encoders = self.create_publisher(
-            Int32MultiArray,
-            'encoders',
-            10
-        )
-        self.pub_battery = self.create_publisher(
-            Float32,
-            'battery_voltage',
+        # Publisher for encoder velocity from ESP32 (m/s)
+        self.pub_enc_vel = self.create_publisher(
+            Float32MultiArray,
+            'enc_vel',
             10
         )
 
-        # Subscriber for wheel commands
+        # Subscriber for wheel commands [FL, FR, RL, RR]
         self.sub_wheel_cmd = self.create_subscription(
             Float32MultiArray,
             'wheel_cmd',
@@ -58,6 +44,9 @@ class ESP32Bridge(Node):
         # Lock for serial write
         self.serial_lock = threading.Lock()
 
+        # Try to open serial (with retry)
+        self.open_serial_with_retry()
+
         # Start read thread
         self.read_thread = threading.Thread(
             target=self.read_loop,
@@ -65,7 +54,39 @@ class ESP32Bridge(Node):
         )
         self.read_thread.start()
 
+    def open_serial_with_retry(self):
+        """Try to open the serial port, retrying until success or node shutdown."""
+        while rclpy.ok():
+            try:
+                self.ser = serial.Serial(
+                    port=self.port,
+                    baudrate=self.baudrate,
+                    timeout=self.timeout
+                )
+                self.get_logger().info(
+                    f'Opened serial port {self.port} at {self.baudrate} baud'
+                )
+                return
+            except serial.SerialException as e:
+                self.get_logger().error(
+                    f'Failed to open serial port {self.port}: {e}. Retrying in 2s...'
+                )
+                time.sleep(2.0)
+
+    def close_serial(self):
+        with self.serial_lock:
+            if self.ser is not None and self.ser.is_open:
+                try:
+                    self.ser.close()
+                except Exception:
+                    pass
+            self.ser = None
+
     def wheel_cmd_callback(self, msg: Float32MultiArray):
+        # No serial right now → drop command
+        if self.ser is None or not self.ser.is_open:
+            return
+
         # Expect 4 elements: [FL, FR, RL, RR]
         data = {
             'wheel_cmd': list(msg.data)
@@ -78,45 +99,54 @@ class ESP32Bridge(Node):
                 self.ser.write(encoded)
             except serial.SerialException as e:
                 self.get_logger().error(f'Serial write error: {e}')
+                # try to recover
+                self.close_serial()
+                self.open_serial_with_retry()
 
     def read_loop(self):
-        # Run in separate thread, read JSON line by line
+        """Run in separate thread, read JSON line by line."""
         while rclpy.ok():
+            if self.ser is None or not self.ser.is_open:
+                # Wait until can open the port again
+                self.open_serial_with_retry()
+
             try:
                 line = self.ser.readline()
             except serial.SerialException as e:
-                self.get_logger().error(f'Serial read error: {e}')
-                break
+                self.get_logger().error(f'Serial read error: {e}. Reconnecting...')
+                self.close_serial()
+                time.sleep(1.0)
+                continue
 
             if not line:
                 continue
 
             try:
-                text = line.decode('utf-8').strip()
+                # decode safely
+                text = line.decode('utf-8', errors='ignore').strip()
                 if not text:
                     continue
+
+                # skip boot logs / garbage that isn't JSON
+                if not text.startswith('{'):
+                    continue
+
                 data = json.loads(text)
             except Exception as e:
                 self.get_logger().warn(f'Invalid JSON from ESP32: {e}')
                 continue
 
-            # Parse encoders
-            if 'encoders' in data:
-                enc = data['encoders']
-                if isinstance(enc, list):
-                    msg = Int32MultiArray()
-                    msg.data = [int(x) for x in enc]
-                    self.pub_encoders.publish(msg)
+            # Debug: log info messages from ESP32
+            if 'info' in data:
+                self.get_logger().info(f"ESP32 info: {data['info']}")
 
-            # Parse battery voltage
-            if 'battery' in data:
-                try:
-                    v = float(data['battery'])
-                    m = Float32()
-                    m.data = v
-                    self.pub_battery.publish(m)
-                except (TypeError, ValueError):
-                    pass
+            # Parse encoder velocity field from ESP32
+            if 'enc_vel' in data:
+                vel = data['enc_vel']
+                if isinstance(vel, list):
+                    msg = Float32MultiArray()
+                    msg.data = [float(x) for x in vel]
+                    self.pub_enc_vel.publish(msg)
 
 
 def main(args=None):

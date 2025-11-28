@@ -10,9 +10,11 @@ def generate_launch_description():
             name='esp32_bridge',
             output='screen',
             parameters=[{
-                'port': '/dev/ttyUSB0',
+                'port': '/dev/ttyACM0',
                 'baudrate': 115200,
                 'timeout': 0.05,
-            }]
+            }],
+            respawn=True,
+            respawn_delay=2.0,
         ),
     ])
