@@ -16,6 +16,11 @@
 // wheel command from ROS2 [FL, FR, RL, RR] in m/s
 static float wheel_cmd[4] = {0, 0, 0, 0};
 
+// --- Command timeout ---
+// If no wheel_cmd received from ROS2 for this many ms, set wheel_cmd to 0
+const unsigned long CMD_TIMEOUT_MS = 500;   //  tune!
+static unsigned long last_cmd_ms = 0;
+
 // timing
 static unsigned long last_telemetry_ms = 0;
 const unsigned long TELEMETRY_PERIOD_MS = 100;   // send encoders every 100ms
@@ -88,6 +93,8 @@ void processLine(const String &line)
     for (int i = 0; i < 4; ++i) {
       wheel_cmd[i] = vals[i];
     }
+    // record time of last valid command
+    last_cmd_ms = millis();
   }
 }
 
@@ -115,11 +122,33 @@ void readSerialLines()
   }
 }
 
+// Set wheel_cmd to 0 if no command has been received recently
+void applyWheelCmdTimeout()
+{
+  unsigned long now = millis();
+
+  // If we never got a command yet, do nothing
+  if (last_cmd_ms == 0) {
+    return;
+  }
+
+  // If last command is too old, zero all wheel commands
+  if (now - last_cmd_ms > CMD_TIMEOUT_MS) {
+    for (int i = 0; i < 4; ++i) {
+      wheel_cmd[i] = 0.0f;
+    }
+  }
+}
+
 // Update mock encoder counts and compute velocity in m/s,
 // then send JSON: {"enc_vel":[v_fl,v_fr,v_rl,v_rr]}
 void updateAndSendEncoderVel()
 {
+  // Apply timeout logic before using wheel_cmd[]
+  applyWheelCmdTimeout();
+
   unsigned long now = millis();
+
   if (prev_vel_ms == 0) {
     prev_vel_ms = now;
     // skip if first prev
