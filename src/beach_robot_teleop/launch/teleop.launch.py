@@ -11,6 +11,7 @@ def generate_launch_description():
             name='joy_node',
             output='screen',
             parameters=[{
+                'device': '/dev/input/js0',
                 'deadzone': 0.05,
                 'autorepeat_rate': 20.0,
             }]
@@ -28,7 +29,7 @@ def generate_launch_description():
                 'track_width': 0.6,
                 'axis_linear': 1,
                 'axis_angular': 0,
-                'scale_linear': 1.0,
+                'scale_linear': -1.0,
                 'scale_angular': 1.0,
 
                 # front tracks (If you feel that it drags harder than the rear wheel, reduce it, for example, by 0.9)
