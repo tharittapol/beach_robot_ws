@@ -4,6 +4,10 @@
 // Encoder data is mocked (no real hardware).
 
 #include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BNO055.h>
+#include <utility/imumaths.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846f
@@ -44,6 +48,10 @@ static unsigned long prev_vel_ms = 0;
 
 // computed velocities (m/s)
 static float enc_vel_mps[4] = {0, 0, 0, 0};
+
+// IMU
+Adafruit_BNO055 bno = Adafruit_BNO055(55, 0x28);  // 0x28 = default address, change if needed
+bool imu_ok = false;
 
 
 // -----------------------------------------------------------
@@ -140,6 +148,52 @@ void applyWheelCmdTimeout()
   }
 }
 
+// Read IMU and format data into JSON pieces
+// embed them into the same JSON line as enc_vel
+void appendImuJson()
+{
+  // if (!imu_ok) {
+  //   // If IMU not available, still send empty arrays (optional)
+  //   BRIDGE_SERIAL.print(",\"imu_quat\":[0,0,0,1]");
+  //   BRIDGE_SERIAL.print(",\"imu_gyro\":[0,0,0]");
+  //   BRIDGE_SERIAL.print(",\"imu_lin_acc\":[0,0,0]");
+  //   return;
+  // }
+
+  imu::Quaternion quat = bno.getQuat();
+  imu::Vector<3> gyro = bno.getVector(Adafruit_BNO055::VECTOR_GYROSCOPE);
+  imu::Vector<3> linacc = bno.getVector(Adafruit_BNO055::VECTOR_LINEARACCEL);
+
+  // Quaternion: [x, y, z, w]
+  BRIDGE_SERIAL.print(",\"imu_quat\":[");
+  BRIDGE_SERIAL.print(quat.x(), 6);
+  BRIDGE_SERIAL.print(",");
+  BRIDGE_SERIAL.print(quat.y(), 6);
+  BRIDGE_SERIAL.print(",");
+  BRIDGE_SERIAL.print(quat.z(), 6);
+  BRIDGE_SERIAL.print(",");
+  BRIDGE_SERIAL.print(quat.w(), 6);
+  BRIDGE_SERIAL.print("]");
+
+  // Gyro (rad/s or deg/s depending on library config, check docs)
+  BRIDGE_SERIAL.print(",\"imu_gyro\":[");
+  BRIDGE_SERIAL.print(gyro.x(), 6);
+  BRIDGE_SERIAL.print(",");
+  BRIDGE_SERIAL.print(gyro.y(), 6);
+  BRIDGE_SERIAL.print(",");
+  BRIDGE_SERIAL.print(gyro.z(), 6);
+  BRIDGE_SERIAL.print("]");
+
+  // Linear acceleration (m/s^2)
+  BRIDGE_SERIAL.print(",\"imu_lin_acc\":[");
+  BRIDGE_SERIAL.print(linacc.x(), 6);
+  BRIDGE_SERIAL.print(",");
+  BRIDGE_SERIAL.print(linacc.y(), 6);
+  BRIDGE_SERIAL.print(",");
+  BRIDGE_SERIAL.print(linacc.z(), 6);
+  BRIDGE_SERIAL.print("]");
+}
+
 // Update mock encoder counts and compute velocity in m/s,
 // then send JSON: {"enc_vel":[v_fl,v_fr,v_rl,v_rr]}
 void updateAndSendEncoderVel()
@@ -192,7 +246,7 @@ void updateAndSendEncoderVel()
 
   prev_vel_ms = now;
 
-  // send JSON: {"enc_vel":[v_fl,v_fr,v_rl,v_rr]}
+  // JSON start: {"enc_vel":[...]
   BRIDGE_SERIAL.print("{\"enc_vel\":[");
   BRIDGE_SERIAL.print(enc_vel_mps[0], 4);
   BRIDGE_SERIAL.print(",");
@@ -201,7 +255,21 @@ void updateAndSendEncoderVel()
   BRIDGE_SERIAL.print(enc_vel_mps[2], 4);
   BRIDGE_SERIAL.print(",");
   BRIDGE_SERIAL.print(enc_vel_mps[3], 4);
-  BRIDGE_SERIAL.println("]}");
+  BRIDGE_SERIAL.print("]");
+
+  // Append IMU fields: "imu_quat", "imu_gyro", "imu_lin_acc"
+  appendImuJson();
+
+  // Close JSON object
+  BRIDGE_SERIAL.println("}");
+  
+  // So each telemetry line is now
+  // {
+  // "enc_vel":[...],
+  // "imu_quat":[x,y,z,w],
+  // "imu_gyro":[gx,gy,gz],
+  // "imu_lin_acc":[ax,ay,az]
+  // }
 }
 
 
@@ -209,7 +277,20 @@ void setup()
 {
   BRIDGE_SERIAL.begin(115200);
   delay(1000);
-  BRIDGE_SERIAL.println("{\"info\":\"ESP32 comm mock started\"}");
+  BRIDGE_SERIAL.println("{\"info\":\"ESP32 comm started\"}");
+
+  // --- IMU init ---
+  Wire.begin();  // use default I2C pins for ESP32-S3
+  if (!bno.begin()) {
+    BRIDGE_SERIAL.println("{\"info\":\"BNO055 not detected\"}");
+    imu_ok = false;
+  } else {
+    imu_ok = true;
+    delay(1000);                 // let it settle
+    bno.setExtCrystalUse(true);  // use external crystal if wired
+    BRIDGE_SERIAL.println("{\"info\":\"BNO055 initialized\"}");
+  }
+  
   last_telemetry_ms = millis();
 }
 

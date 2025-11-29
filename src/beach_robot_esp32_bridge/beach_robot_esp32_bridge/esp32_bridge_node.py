@@ -6,6 +6,7 @@ import rclpy
 from rclpy.node import Node
 
 from std_msgs.msg import Float32MultiArray
+from sensor_msgs.msg import Imu
 
 import serial
 
@@ -18,11 +19,13 @@ class ESP32Bridge(Node):
         self.declare_parameter('port', '/dev/ttyACM0')
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('timeout', 0.05)
+        self.declare_parameter('imu_frame_id', 'imu_link')
 
         # Read parameters and store in self.*
         self.port = self.get_parameter('port').get_parameter_value().string_value
         self.baudrate = self.get_parameter('baudrate').get_parameter_value().integer_value
         self.timeout = self.get_parameter('timeout').get_parameter_value().double_value
+        self.imu_frame_id = self.get_parameter('imu_frame_id').get_parameter_value().string_value
 
         self.ser = None
 
@@ -30,6 +33,12 @@ class ESP32Bridge(Node):
         self.pub_enc_vel = self.create_publisher(
             Float32MultiArray,
             'enc_vel',
+            10
+        )
+
+        self.pub_imu = self.create_publisher(
+            Imu,
+            'imu/data',
             10
         )
 
@@ -147,6 +156,43 @@ class ESP32Bridge(Node):
                     msg = Float32MultiArray()
                     msg.data = [float(x) for x in vel]
                     self.pub_enc_vel.publish(msg)
+            
+            # Build and publish IMU message if fields are present
+            has_imu = False
+            imu_msg = Imu()
+            imu_msg.header.stamp = self.get_clock().now().to_msg()
+            imu_msg.header.frame_id = self.imu_frame_id if hasattr(self, 'imu_frame_id') else 'imu_link'
+
+            # Orientation (quaternion)
+            if 'imu_quat' in data:
+                q = data['imu_quat']
+                if isinstance(q, list) and len(q) == 4:
+                    imu_msg.orientation.x = float(q[0])
+                    imu_msg.orientation.y = float(q[1])
+                    imu_msg.orientation.z = float(q[2])
+                    imu_msg.orientation.w = float(q[3])
+                    has_imu = True
+
+            # Angular velocity (gyro)
+            if 'imu_gyro' in data:
+                g = data['imu_gyro']
+                if isinstance(g, list) and len(g) == 3:
+                    imu_msg.angular_velocity.x = float(g[0])
+                    imu_msg.angular_velocity.y = float(g[1])
+                    imu_msg.angular_velocity.z = float(g[2])
+                    has_imu = True
+
+            # Linear acceleration
+            if 'imu_lin_acc' in data:
+                a = data['imu_lin_acc']
+                if isinstance(a, list) and len(a) == 3:
+                    imu_msg.linear_acceleration.x = float(a[0])
+                    imu_msg.linear_acceleration.y = float(a[1])
+                    imu_msg.linear_acceleration.z = float(a[2])
+                    has_imu = True
+
+            if has_imu:
+                self.pub_imu.publish(imu_msg)
 
 
 def main(args=None):
