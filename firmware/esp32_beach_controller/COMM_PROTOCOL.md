@@ -20,6 +20,12 @@ The goal is to make it easy to understand, debug, or re-implement either side.
 ```
 - `duration` (float) in seconds
 
+```json
+{"vibration_enable": bool}
+```
+- `true` → turn ON vibration motor
+- `false` → turn OFF vibration motor
+
 ---
 
 ## ESP32 → Jetson

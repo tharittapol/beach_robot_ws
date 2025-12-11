@@ -3,21 +3,22 @@ import math
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
-from std_msgs.msg import Float32MultiArray
+from std_msgs.msg import Float32MultiArray, Bool, String
 
 
 class Teleop4WDSkid(Node):
     def __init__(self):
         super().__init__('teleop_4wd')
 
-        # Parameters
+        # ---------------- Parameters ----------------
+        # Movement limits
         self.declare_parameter('max_linear', 0.5)   # m/s
         self.declare_parameter('max_angular', 1.0)  # rad/s
         self.declare_parameter('track_width', 0.5)  # m, Left-right wheel distance
 
         # Joystick axes
-        self.declare_parameter('axis_linear', 1)    # joystick axis index (e.g. 1 = left stick Y)
-        self.declare_parameter('axis_angular', 0)   # joystick axis index (e.g. 0 = left stick X)
+        self.declare_parameter('axis_linear', 1)    # e.g. 1 = left stick Y
+        self.declare_parameter('axis_angular', 0)   # e.g. 0 = left stick X
         self.declare_parameter('scale_linear', 1.0)
         self.declare_parameter('scale_angular', 1.0)
 
@@ -30,7 +31,18 @@ class Teleop4WDSkid(Node):
         self.declare_parameter('front_right_scale', 1.0)
         self.declare_parameter('rear_right_scale', 1.0)
 
-        # Read parameters
+        # Button mapping (Logitech F710 in XInput mode ~ Xbox layout)
+        # A=0, B=1, X=2, Y=3 by default
+        self.declare_parameter('button_a', 0)   # hold 3s → toggle auto/manual
+        self.declare_parameter('button_b', 1)   # (free for future)
+        self.declare_parameter('button_x', 2)   # toggle vibration
+        self.declare_parameter('button_y', 3)   # stop / unlock stop
+
+        # Hold durations (seconds)
+        self.declare_parameter('mode_hold_sec', 3.0)    # A button hold
+        self.declare_parameter('estop_hold_sec', 3.0)   # Y button hold for unlock
+
+        # ----- read parameters -----
         self.max_linear = float(self.get_parameter('max_linear').value)
         self.max_angular = float(self.get_parameter('max_angular').value)
         self.track_width = float(self.get_parameter('track_width').value)
@@ -47,7 +59,30 @@ class Teleop4WDSkid(Node):
         self.front_right_scale = float(self.get_parameter('front_right_scale').value)
         self.rear_right_scale = float(self.get_parameter('rear_right_scale').value)
 
-        # Subscribers / Publishers
+        self.button_a = int(self.get_parameter('button_a').value)
+        self.button_x = int(self.get_parameter('button_x').value)
+        self.button_y = int(self.get_parameter('button_y').value)
+        self.mode_hold_sec = float(self.get_parameter('mode_hold_sec').value)
+        self.estop_hold_sec = float(self.get_parameter('estop_hold_sec').value)
+
+        # ---------------- State ----------------
+        # Control mode: manual / auto
+        self.manual_mode = True  # start in manual
+        # Vibration state (only used in manual)
+        self.vibration_on = False
+        # Emergency stop: if True, base must not move
+        self.estop_active = False
+
+        # Button state tracking (for edge + hold detection)
+        self.prev_a = False
+        self.prev_x = False
+        self.prev_y = False
+
+        self.a_press_start = None
+        self.a_hold_toggled = False
+        self.y_press_start = None
+
+        # ---------------- Subscribers / Publishers ----------------
         self.sub_joy = self.create_subscription(
             Joy,
             'joy',
@@ -61,52 +96,178 @@ class Teleop4WDSkid(Node):
             10
         )
 
-        self.get_logger().info(
-            'Teleop4WDSkid node started (Jog by Left stick AND LB = deadman)'
+        # Send vibration enable/disable to ESP32 (through esp32_bridge)
+        self.pub_vibration = self.create_publisher(
+            Bool,
+            'vibration_enable',
+            10
         )
 
-    def joy_callback(self, msg: Joy):
-        # --- Deadman: check enable button (LB) ---
-        # If button index is out of range or not pressed -> stop robot
-        enable_pressed = False
-        if 0 <= self.enable_button < len(msg.buttons):
-            enable_pressed = (msg.buttons[self.enable_button] == 1)
+        # Publish current mode: "manual" or "auto" (for other nodes)
+        self.pub_mode = self.create_publisher(
+            String,
+            'control_mode',
+            10
+        )
 
-        if not enable_pressed:
-            # Deadman not pressed -> publish zero command
+        # Publish emergency stop state
+        self.pub_estop = self.create_publisher(
+            Bool,
+            'e_stop',
+            10
+        )
+
+        self.get_logger().info(
+            'Teleop4WDSkid started (LB=deadman, Left-stick=base, X=vibration, Y=stop, A=mode)'
+        )
+
+    # ------------------------------------------------------------------
+    # Utility
+    # ------------------------------------------------------------------
+    def _now(self) -> float:
+        """Current time in seconds (float)."""
+        return self.get_clock().now().nanoseconds / 1e9
+
+    # ------------------------------------------------------------------
+    # Joystick callback
+    # ------------------------------------------------------------------
+    def joy_callback(self, msg: Joy):
+        now = self._now()
+        axes = msg.axes
+        buttons = msg.buttons
+
+        def get_axis(idx: int, default: float = 0.0) -> float:
+            if 0 <= idx < len(axes):
+                return axes[idx]
+            return default
+
+        def get_button(idx: int) -> bool:
+            if 0 <= idx < len(buttons):
+                return bool(buttons[idx])
+            return False
+
+        # -------- Read axes (for base movement) --------
+        raw_lin = get_axis(self.axis_linear)
+        raw_ang = get_axis(self.axis_angular)
+
+        # -------- Read buttons --------
+        enable_pressed = get_button(self.enable_button)
+        a_pressed = get_button(self.button_a)
+        x_pressed = get_button(self.button_x)
+        y_pressed = get_button(self.button_y)
+
+        # ==============================================================
+        # Handle A button: hold 3s → toggle manual/auto mode
+        #    (independent of deadman; works anytime)
+        # ==============================================================
+        if a_pressed and not self.prev_a:
+            # just pressed
+            self.a_press_start = now
+            self.a_hold_toggled = False
+        elif a_pressed and self.prev_a:
+            # still holding
+            if (self.a_press_start is not None
+                    and not self.a_hold_toggled
+                    and (now - self.a_press_start) >= self.mode_hold_sec):
+                # toggle mode
+                self.manual_mode = not self.manual_mode
+                self.a_hold_toggled = True
+
+                mode_str = 'manual' if self.manual_mode else 'auto'
+                self.get_logger().info(f'Control mode switched to: {mode_str}')
+
+                mode_msg = String()
+                mode_msg.data = mode_str
+                self.pub_mode.publish(mode_msg)
+        else:
+            # released
+            self.a_press_start = None
+            self.a_hold_toggled = False
+
+        # ==============================================================
+        # Handle Y button: emergency stop
+        #    - short press → activate stop immediately
+        #    - hold 3s (while stopped) → release
+        #    (works in both manual & auto, independent of deadman)
+        # ==============================================================
+        if y_pressed and not self.prev_y:
+            # rising edge
+            if not self.estop_active:
+                self.estop_active = True
+                self.get_logger().warn('E-STOP activated by Y button')
+            # start potential unlock timer
+            self.y_press_start = now
+
+        elif y_pressed and self.prev_y:
+            # still holding
+            if (self.estop_active
+                    and self.y_press_start is not None
+                    and (now - self.y_press_start) >= self.estop_hold_sec):
+                self.estop_active = False
+                self.get_logger().info('E-STOP released after holding Y')
+                self.y_press_start = None
+        else:
+            self.y_press_start = None
+
+        # ==============================================================
+        # Handle X button: toggle vibration motor (manual mode only)
+        #    (independent of deadman)
+        # ==============================================================
+        if self.manual_mode:
+            if x_pressed and not self.prev_x:
+                self.vibration_on = not self.vibration_on
+                vmsg = Bool()
+                vmsg.data = self.vibration_on
+                self.pub_vibration.publish(vmsg)
+                self.get_logger().info(
+                    f'Vibration motor {"ENABLED" if self.vibration_on else "DISABLED"}'
+                )
+
+        # ==============================================================
+        # Compute wheel_cmd (deadman only affects movement)
+        #    - Need: manual_mode == True
+        #    - AND   estop_active == False
+        #    - AND   deadman (LB) pressed
+        # ==============================================================
+        if self.manual_mode and not self.estop_active and enable_pressed:
+            # scaling
+            v = raw_lin * self.scale_linear * self.max_linear
+            w = raw_ang * self.scale_angular * self.max_angular
+
+            # skid-steer kinematics
+            v_left = v - (w * self.track_width / 2.0)
+            v_right = v + (w * self.track_width / 2.0)
+
+            v_fl = v_left * self.front_left_scale
+            v_rl = v_left * self.rear_left_scale
+            v_fr = v_right * self.front_right_scale
+            v_rr = v_right * self.rear_right_scale
+
+            wheel_cmd = Float32MultiArray()
+            wheel_cmd.data = [v_fl, v_fr, v_rl, v_rr]
+            self.pub_wheel_cmd.publish(wheel_cmd)
+
+        elif self.estop_active:
+            # e-stop active → publish zero speeds
             wheel_cmd = Float32MultiArray()
             wheel_cmd.data = [0.0, 0.0, 0.0, 0.0]
             self.pub_wheel_cmd.publish(wheel_cmd)
-            return
 
-        # --- Read joystick axes values ---
-        try:
-            raw_lin = msg.axes[self.axis_linear]
-            raw_ang = msg.axes[self.axis_angular]
-        except IndexError:
-            self.get_logger().warn('Joy axes index out of range')
-            return
+        # ==============================================================
+        # Publish mode & e-stop for other nodes
+        # ==============================================================
+        mode_msg = String()
+        mode_msg.data = 'manual' if self.manual_mode else 'auto'
+        self.pub_mode.publish(mode_msg)
 
-        # --- Scaling to linear / angular velocity ---
-        v = raw_lin * self.scale_linear * self.max_linear    # m/s
-        w = raw_ang * self.scale_angular * self.max_angular  # rad/s
+        estop_msg = Bool()
+        estop_msg.data = self.estop_active
+        self.pub_estop.publish(estop_msg)
 
-        # --- Compute left/right wheel speeds for skid-steer ---
-        v_left = v - (w * self.track_width / 2.0)
-        v_right = v + (w * self.track_width / 2.0)
-
-        # --- Apply per-wheel scale ---
-        v_fl = v_left * self.front_left_scale
-        v_rl = v_left * self.rear_left_scale
-        v_fr = v_right * self.front_right_scale
-        v_rr = v_right * self.rear_right_scale
-
-        # --- Publish wheel command ---
-        wheel_cmd = Float32MultiArray()
-        # [front_left, front_right, rear_left, rear_right]
-        wheel_cmd.data = [v_fl, v_fr, v_rl, v_rr]
-
-        self.pub_wheel_cmd.publish(wheel_cmd)
+        # update previous button states
+        self.prev_a = a_pressed
+        self.prev_x = x_pressed
+        self.prev_y = y_pressed
 
 
 def main(args=None):

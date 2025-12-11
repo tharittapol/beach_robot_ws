@@ -5,7 +5,7 @@ import time
 import rclpy
 from rclpy.node import Node
 
-from std_msgs.msg import Float32MultiArray, Float32
+from std_msgs.msg import Float32MultiArray, Float32, Bool
 from sensor_msgs.msg import Imu
 
 import serial
@@ -53,6 +53,12 @@ class ESP32Bridge(Node):
             Float32,
             'buzzer_duration',
             self.buzzer_callback,
+            10
+        )
+        self.sub_vibration = self.create_subscription(
+            Bool,
+            'vibration_enable',
+            self.vibration_callback,
             10
         )
 
@@ -138,6 +144,28 @@ class ESP32Bridge(Node):
                 self.get_logger().error(f'Serial write error (buzzer): {e}')
                 self.close_serial()
                 self.open_serial_with_retry()
+
+    def vibration_callback(self, msg: Bool):
+        """
+        Send vibration_enable to ESP32 as JSON:
+        {"vibration_enable": true/false}
+        """
+        if self.ser is None or not self.ser.is_open:
+            self.get_logger().warn('Serial not open, cannot send vibration command')
+            return
+
+        data = {'vibration_enable': bool(msg.data)}
+        line = json.dumps(data) + '\n'
+        encoded = line.encode('utf-8')
+
+        with self.serial_lock:
+            try:
+                self.ser.write(encoded)
+            except serial.SerialException as e:
+                self.get_logger().error(f'Serial write error (vibration): {e}')
+                self.close_serial()
+                self.open_serial_with_retry()
+
 
     # ------------------------------------------------------------------
     # Read loop from ESP32

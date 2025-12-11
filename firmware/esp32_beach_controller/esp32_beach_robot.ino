@@ -66,6 +66,10 @@ const int BUZZER_PIN = 15;  // adjust as needed
 bool buzzer_active = false;
 unsigned long buzzer_end_ms = 0;
 
+// Vibration motor
+const int VIBRATION_PIN = 16;  // adjust as needed
+bool vibration_enabled = false;
+
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
@@ -150,6 +154,34 @@ void processLine(const String &line)
 {
   // basic check
   if (!line.startsWith("{")) {
+    return;
+  }
+
+  // --- vibration command ---
+  int vib_idx = line.indexOf("\"vibration_enable\"");
+  if (vib_idx != -1) {
+    int colon = line.indexOf(':', vib_idx);
+    int end   = line.indexOf(',', colon);
+    if (end == -1) {
+      end = line.lastIndexOf('}');
+    }
+    if (colon > 0 && end > colon) {
+      String val = line.substring(colon + 1, end);
+      val.trim();
+
+      bool enable = false;
+      if (val.equalsIgnoreCase("true")) {
+        enable = true;
+      } else if (val.equalsIgnoreCase("false")) {
+        enable = false;
+      } else {
+        // numeric: 0 / 1
+        enable = (val.toFloat() > 0.5f);
+      }
+
+      vibration_enabled = enable;
+      digitalWrite(VIBRATION_PIN, vibration_enabled ? HIGH : LOW);
+    }
     return;
   }
 
@@ -344,6 +376,11 @@ void setup()
   // --- Buzzer init ---
   pinMode(BUZZER_PIN, OUTPUT);
   digitalWrite(BUZZER_PIN, LOW);
+
+  // --- Vibration motor init ---
+  pinMode(VIBRATION_PIN, OUTPUT);
+  digitalWrite(VIBRATION_PIN, LOW);
+  vibration_enabled = false;
 
   last_telemetry_ms = millis();
 }
