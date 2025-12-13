@@ -4,6 +4,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Float32MultiArray, Bool, String
+from std_srvs.srv import Trigger
 
 
 class Teleop4WDSkid(Node):
@@ -34,13 +35,16 @@ class Teleop4WDSkid(Node):
         # Button mapping (Logitech F710 in XInput mode ~ Xbox layout)
         # A=0, B=1, X=2, Y=3 by default
         self.declare_parameter('button_a', 0)   # hold 3s → toggle auto/manual
-        self.declare_parameter('button_b', 1)   # (free for future)
+        self.declare_parameter('button_b', 1)   # press in auto mode → start cleaning
         self.declare_parameter('button_x', 2)   # toggle vibration
         self.declare_parameter('button_y', 3)   # stop / unlock stop
 
         # Hold durations (seconds)
         self.declare_parameter('mode_hold_sec', 3.0)    # A button hold
         self.declare_parameter('estop_hold_sec', 3.0)   # Y button hold for unlock
+
+        # Service name for starting auto cleaning
+        self.declare_parameter('auto_start_service', 'auto_clean/start')
 
         # ----- read parameters -----
         self.max_linear = float(self.get_parameter('max_linear').value)
@@ -64,6 +68,11 @@ class Teleop4WDSkid(Node):
         self.button_y = int(self.get_parameter('button_y').value)
         self.mode_hold_sec = float(self.get_parameter('mode_hold_sec').value)
         self.estop_hold_sec = float(self.get_parameter('estop_hold_sec').value)
+
+        self.auto_start_service_name = (
+            self.get_parameter('auto_start_service')
+            .get_parameter_value().string_value
+        )
 
         # ---------------- State ----------------
         # Control mode: manual / auto
@@ -117,8 +126,14 @@ class Teleop4WDSkid(Node):
             10
         )
 
+        # ----- Service client for auto cleaning -----
+        self.auto_start_client = self.create_client(
+            Trigger,
+            self.auto_start_service_name
+        )
+
         self.get_logger().info(
-            'Teleop4WDSkid started (LB=deadman, Left-stick=base, X=vibration, Y=stop, A=mode)'
+            'Teleop4WDSkid started (LB=deadman, Left-stick=base, X=vibration, Y=stop, A=mode, B=start-auto-clean)'
         )
 
     # ------------------------------------------------------------------
@@ -127,6 +142,44 @@ class Teleop4WDSkid(Node):
     def _now(self) -> float:
         """Current time in seconds (float)."""
         return self.get_clock().now().nanoseconds / 1e9
+    
+    # Service call helper
+    def start_auto_clean(self):
+        """Call auto cleaning start service when in auto mode."""
+        if self.manual_mode:
+            self.get_logger().warn(
+                'B pressed but robot is in MANUAL mode; auto cleaning not started.'
+            )
+            return
+
+        if self.estop_active:
+            self.get_logger().warn(
+                'Cannot start auto cleaning: E-STOP is active.'
+            )
+            return
+
+        if not self.auto_start_client.wait_for_service(timeout_sec=0.0):
+            self.get_logger().warn(
+                f'Auto start service "{self.auto_start_service_name}" not available.'
+            )
+            return
+
+        req = Trigger.Request()
+        future = self.auto_start_client.call_async(req)
+        future.add_done_callback(self._auto_start_response_cb)
+        self.get_logger().info('Auto cleaning start request sent.')
+
+    def _auto_start_response_cb(self, future):
+        try:
+            resp = future.result()
+        except Exception as e:
+            self.get_logger().error(f'Auto cleaning service call failed: {e}')
+            return
+
+        if resp.success:
+            self.get_logger().info(f'Auto cleaning started: {resp.message}')
+        else:
+            self.get_logger().warn(f'Auto cleaning rejected: {resp.message}')
 
     # ------------------------------------------------------------------
     # Joystick callback
@@ -153,6 +206,7 @@ class Teleop4WDSkid(Node):
         # -------- Read buttons --------
         enable_pressed = get_button(self.enable_button)
         a_pressed = get_button(self.button_a)
+        b_pressed = get_button(self.button_b)
         x_pressed = get_button(self.button_x)
         y_pressed = get_button(self.button_y)
 
@@ -223,6 +277,14 @@ class Teleop4WDSkid(Node):
                     f'Vibration motor {"ENABLED" if self.vibration_on else "DISABLED"}'
                 )
 
+        # ==============================================================
+        # Handle B button: start auto cleaning (AUTO mode only)
+        #     - only reacts on rising edge
+        # ==============================================================
+        if b_pressed and not self.prev_b:
+            # only attempt when in auto mode; function itself checks estop + service
+            self.start_auto_clean()
+        
         # ==============================================================
         # Compute wheel_cmd (deadman only affects movement)
         #    - Need: manual_mode == True
