@@ -5,25 +5,63 @@ import os
 
 
 def generate_launch_description():
-    pkg_share = get_package_share_directory('beach_robot_localization')
-    ekf_config = os.path.join(pkg_share, 'config', 'ekf_local.yaml')
+    pkg = get_package_share_directory('beach_robot_localization')
+    ekf_local = os.path.join(pkg, 'config', 'ekf_local.yaml')
+    navsat = os.path.join(pkg, 'config', 'navsat.yaml')
+    ekf_global = os.path.join(pkg, 'config', 'ekf_global.yaml')
 
     return LaunchDescription([
-        # Wheel odometry from enc_vel
         Node(
             package='beach_robot_localization',
             executable='wheel_odometry',
             name='wheel_odometry',
             output='screen',
-            parameters=[{'track_width': 0.8}],  # <-- tune this value as needed
+            parameters=[{
+                'enc_vel_topic': 'enc_vel',
+                'odom_topic': 'wheel/odom',
+                'track_width': 0.60,
+                'base_frame_id': 'base_link',
+                'odom_frame_id': 'odom',
+            }]
         ),
 
-        # EKF fusion (wheel + IMU)
         Node(
             package='robot_localization',
             executable='ekf_node',
             name='ekf_local',
             output='screen',
-            parameters=[ekf_config],
+            parameters=[ekf_local],
+            remappings=[
+                ('odometry/filtered', 'odometry/local'),
+                ('wheel/odom', 'wheel/odom'),
+                ('imu/data', 'imu/data'),
+            ],
+        ),
+
+        Node(
+            package='robot_localization',
+            executable='navsat_transform_node',
+            name='navsat_transform',
+            output='screen',
+            parameters=[navsat],
+            remappings=[
+                ('imu', 'imu/data'),
+                ('gps/fix', 'gps/fix'),
+                ('odometry/filtered', 'odometry/local'),
+                ('odometry/gps', 'odometry/gps'),
+            ],
+        ),
+
+        Node(
+            package='robot_localization',
+            executable='ekf_node',
+            name='ekf_global',
+            output='screen',
+            parameters=[ekf_global],
+            remappings=[
+                ('odometry/filtered', 'odometry/global'),
+                ('odometry/gps', 'odometry/gps'),
+                ('imu/data', 'imu/data'),
+            ],
         ),
     ])
