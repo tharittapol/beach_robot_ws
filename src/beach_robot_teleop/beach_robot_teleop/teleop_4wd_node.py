@@ -5,6 +5,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Float32MultiArray, Bool, String
 from std_srvs.srv import Trigger
+from geometry_msgs.msg import Twist
 
 
 class Teleop4WDSkid(Node):
@@ -15,7 +16,6 @@ class Teleop4WDSkid(Node):
         # Movement limits
         self.declare_parameter('max_linear', 0.5)   # m/s
         self.declare_parameter('max_angular', 1.0)  # rad/s
-        self.declare_parameter('track_width', 0.5)  # m, Left-right wheel distance
 
         # Joystick axes
         self.declare_parameter('axis_linear', 1)    # e.g. 1 = left stick Y
@@ -25,12 +25,6 @@ class Teleop4WDSkid(Node):
 
         # Deadman / enable button (LB on Logitech F710 is usually index 4)
         self.declare_parameter('enable_button', 4)
-
-        # Per-wheel scale
-        self.declare_parameter('front_left_scale', 1.0)
-        self.declare_parameter('rear_left_scale', 1.0)
-        self.declare_parameter('front_right_scale', 1.0)
-        self.declare_parameter('rear_right_scale', 1.0)
 
         # Button mapping (Logitech F710 in XInput mode ~ Xbox layout)
         # A=0, B=1, X=2, Y=3 by default
@@ -49,7 +43,6 @@ class Teleop4WDSkid(Node):
         # ----- read parameters -----
         self.max_linear = float(self.get_parameter('max_linear').value)
         self.max_angular = float(self.get_parameter('max_angular').value)
-        self.track_width = float(self.get_parameter('track_width').value)
 
         self.axis_linear = int(self.get_parameter('axis_linear').value)
         self.axis_angular = int(self.get_parameter('axis_angular').value)
@@ -57,11 +50,6 @@ class Teleop4WDSkid(Node):
         self.scale_angular = float(self.get_parameter('scale_angular').value)
 
         self.enable_button = int(self.get_parameter('enable_button').value)
-
-        self.front_left_scale = float(self.get_parameter('front_left_scale').value)
-        self.rear_left_scale = float(self.get_parameter('rear_left_scale').value)
-        self.front_right_scale = float(self.get_parameter('front_right_scale').value)
-        self.rear_right_scale = float(self.get_parameter('rear_right_scale').value)
 
         self.button_a = int(self.get_parameter('button_a').value)
         self.button_x = int(self.get_parameter('button_x').value)
@@ -99,9 +87,9 @@ class Teleop4WDSkid(Node):
             10
         )
 
-        self.pub_wheel_cmd = self.create_publisher(
-            Float32MultiArray,
-            'wheel_cmd',
+        self.pub_vel_cmd = self.create_publisher(
+            Twist,
+            'cmd_vel',
             10
         )
 
@@ -293,27 +281,25 @@ class Teleop4WDSkid(Node):
         # ==============================================================
         if self.manual_mode and not self.estop_active and enable_pressed:
             # scaling
-            v = raw_lin * self.scale_linear * self.max_linear
-            w = raw_ang * self.scale_angular * self.max_angular
+            v = raw_lin * self.scale_linear * self.max_linear # m/s
+            w = raw_ang * self.scale_angular * self.max_angular # rad/s
 
-            # skid-steer kinematics
-            v_left = v - (w * self.track_width / 2.0)
-            v_right = v + (w * self.track_width / 2.0)
+            cmd = Twist()
+            cmd.linear.x = float(v)
+            cmd.linear.y = 0.0
+            cmd.linear.z = 0.0
+            cmd.angular.x = 0.0
+            cmd.angular.y = 0.0
+            cmd.angular.z = float(w)
 
-            v_fl = v_left * self.front_left_scale
-            v_rl = v_left * self.rear_left_scale
-            v_fr = v_right * self.front_right_scale
-            v_rr = v_right * self.rear_right_scale
-
-            wheel_cmd = Float32MultiArray()
-            wheel_cmd.data = [v_fl, v_fr, v_rl, v_rr]
-            self.pub_wheel_cmd.publish(wheel_cmd)
+            self.pub_vel_cmd.publish(cmd)
 
         elif self.estop_active:
             # e-stop active → publish zero speeds
-            wheel_cmd = Float32MultiArray()
-            wheel_cmd.data = [0.0, 0.0, 0.0, 0.0]
-            self.pub_wheel_cmd.publish(wheel_cmd)
+            cmd = Twist()
+            cmd.linear.x = 0.0
+            cmd.angular.z = 0.0
+            self.pub_vel_cmd.publish(cmd)
 
         # ==============================================================
         # Publish mode & e-stop for other nodes
