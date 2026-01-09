@@ -40,6 +40,9 @@ class Teleop4WDSkid(Node):
         # Service name for starting auto cleaning
         self.declare_parameter('auto_start_service', 'auto_clean/start')
 
+        # Output cmd_vel topic
+        self.declare_parameter('cmd_vel_out', 'cmd_vel')
+
         # ----- read parameters -----
         self.max_linear = float(self.get_parameter('max_linear').value)
         self.max_angular = float(self.get_parameter('max_angular').value)
@@ -59,6 +62,11 @@ class Teleop4WDSkid(Node):
 
         self.auto_start_service_name = (
             self.get_parameter('auto_start_service')
+            .get_parameter_value().string_value
+        )
+
+        self.cmd_vel_out_topic = (
+            self.get_parameter('cmd_vel_out')
             .get_parameter_value().string_value
         )
 
@@ -89,7 +97,7 @@ class Teleop4WDSkid(Node):
 
         self.pub_vel_cmd = self.create_publisher(
             Twist,
-            'cmd_vel',
+            self.cmd_vel_out_topic,
             10
         )
 

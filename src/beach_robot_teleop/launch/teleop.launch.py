@@ -26,19 +26,11 @@ def generate_launch_description():
             parameters=[{
                 'max_linear': 0.5,
                 'max_angular': 1.0,
-                'track_width': 0.6,
                 'axis_linear': 1,
                 'axis_angular': 0,
                 'scale_linear': -1.0,
                 'scale_angular': 1.0,
-
-                # front tracks (If you feel that it drags harder than the rear wheel, reduce it, for example, by 0.9)
-                'front_left_scale': 1.0,
-                'front_right_scale': 1.0,
-
-                # rear wheels (If smaller/different, may need to increase scale)
-                'rear_left_scale': 1.0,
-                'rear_right_scale': 1.0,
+                'cmd_vel_out': '/cmd_vel',
             }]
         )
     ])
