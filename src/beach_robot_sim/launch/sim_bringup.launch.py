@@ -62,8 +62,12 @@ def generate_launch_description():
 
     # Gazebo Classic + gazebo_ros
     gazebo = ExecuteProcess(
-        cmd=["gazebo", "--verbose", world, "-s", "libgazebo_ros_factory.so"],
-        output="screen",
+        cmd=[
+            'gazebo', '--verbose', world,
+            '-s', 'libgazebo_ros_init.so',
+            '-s', 'libgazebo_ros_factory.so',
+        ],
+        output='screen'
     )
 
     # Spawn robot from robot_description topic
@@ -74,7 +78,7 @@ def generate_launch_description():
         arguments=[
             "-entity", "beach_robot",
             "-topic", "robot_description",
-            "-x", "0", "-y", "0", "-z", "0.0",
+            "-x", "0", "-y", "0", "-z", "0.05",
         ],
     )
 
