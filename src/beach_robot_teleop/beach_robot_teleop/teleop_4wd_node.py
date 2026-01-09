@@ -55,6 +55,7 @@ class Teleop4WDSkid(Node):
         self.enable_button = int(self.get_parameter('enable_button').value)
 
         self.button_a = int(self.get_parameter('button_a').value)
+        self.button_b = int(self.get_parameter('button_b').value)
         self.button_x = int(self.get_parameter('button_x').value)
         self.button_y = int(self.get_parameter('button_y').value)
         self.mode_hold_sec = float(self.get_parameter('mode_hold_sec').value)

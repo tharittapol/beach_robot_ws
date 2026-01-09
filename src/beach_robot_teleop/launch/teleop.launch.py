@@ -28,7 +28,7 @@ def generate_launch_description():
                 'max_angular': 1.0,
                 'axis_linear': 1,
                 'axis_angular': 0,
-                'scale_linear': -1.0,
+                'scale_linear': 1.0,
                 'scale_angular': 1.0,
                 'cmd_vel_out': '/cmd_vel',
             }]
