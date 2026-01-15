@@ -11,11 +11,13 @@ ekf_local:
     base_link_frame: base_link
     world_frame: odom
 
+    # Turn off VX because it's not robust when the wheels are spinning/on sand/slippery surfaces.
+    # Turn off yaw, Vyaw because it might interfere, and watch out for drift.
     odom0: wheel/odom
     odom0_config: [true,  true,  false,
-                   false, false, true,
-                   true,  false, false,
-                   false, false, true,
+                   false, false, false,
+                   false,  false, false,
+                   false, false, false,
                    false, false, false]
     # x, y, z,
     # roll, pitch, yaw,
