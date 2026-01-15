@@ -28,6 +28,7 @@ setup(
             'um982_heading = beach_robot_gnss.um982_heading_node:main',
             'gnss_heading_to_imu = beach_robot_gnss.gnss_heading_to_imu_node:main',
             'um982_bridge_node = beach_robot_gnss.bridge_node:main',
+            'gps_jitter_node = beach_robot_gnss.gps_jitter_node:main',
         ],
     },
 )
