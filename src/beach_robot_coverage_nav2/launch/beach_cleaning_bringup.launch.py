@@ -70,12 +70,24 @@ def generate_launch_description():
         name='coverage_follow_waypoints',
         output='screen',
         parameters=[{
+            # --- area (rectangle) ---
+            'area.origin_x': 0.0,
+            'area.origin_y': 0.0,
+            'area.width': 30.0,     # ด้านยาว (แนววิ่งขนานชายหาด)
+            'area.height': 10.0,    # ด้านกว้าง (แนว shift lane)
+            'area.yaw': 0.0,        # ถ้าแกน X ของ map ขนานชายหาดอยู่แล้ว
+
+            # --- coverage ---
             'tool_width': 0.60,
             'overlap': 0.15,
             'boundary_margin': 0.30,
             'waypoint_step': 2.0,
+
+            # --- turn ---
             'turn_style': 'arc',
             'turn_radius': 1.0,
+
+            # --- run ---
             'autostart': start_coverage,
             'start_delay_sec': 6.0,
         }],
