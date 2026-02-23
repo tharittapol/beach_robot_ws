@@ -21,8 +21,8 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='YOUR_NAME',
-    maintainer_email='YOUR_EMAIL',
+    maintainer='todo',
+    maintainer_email='todo@example.com',
     description='Bringup package for Beach Robot hardware deployment',
     license='MIT',
     extras_require={

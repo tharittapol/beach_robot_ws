@@ -6,7 +6,7 @@ import rclpy
 from rclpy.node import Node
 
 from std_msgs.msg import Float32MultiArray, Float32, Bool
-from sensor_msgs.msg import Imu
+from sensor_msgs.msg import Imu, Range
 
 import serial
 
@@ -26,6 +26,26 @@ class ESP32Bridge(Node):
         self.baudrate = self.get_parameter('baudrate').get_parameter_value().integer_value
         self.timeout = self.get_parameter('timeout').get_parameter_value().double_value
         self.imu_frame_id = self.get_parameter('imu_frame_id').get_parameter_value().string_value
+
+        # Ultrasonic params
+        self.declare_parameter('ultra_min_m', 0.02)
+        self.declare_parameter('ultra_max_m', 2.50)
+        self.declare_parameter('ultra_fov_rad', 0.52)  # ~30 deg
+        self.declare_parameter('ultra_frame_left', 'ultra_left_link')
+        self.declare_parameter('ultra_frame_middle', 'ultra_middle_link')
+        self.declare_parameter('ultra_frame_right', 'ultra_right_link')
+
+        self.ultra_min_m = self.get_parameter('ultra_min_m').value
+        self.ultra_max_m = self.get_parameter('ultra_max_m').value
+        self.ultra_fov_rad = self.get_parameter('ultra_fov_rad').value
+        self.ultra_frame_left = self.get_parameter('ultra_frame_left').value
+        self.ultra_frame_middle = self.get_parameter('ultra_frame_middle').value
+        self.ultra_frame_right = self.get_parameter('ultra_frame_right').value
+
+        # Ultrasonic publishers (sensor_msgs/Range)
+        self.pub_ultra_left = self.create_publisher(Range, '/ultrasonic/left', 10)
+        self.pub_ultra_middle = self.create_publisher(Range, '/ultrasonic/middle', 10)
+        self.pub_ultra_right = self.create_publisher(Range, '/ultrasonic/right', 10)
 
         self.ser = None
         self.serial_lock = threading.Lock()
@@ -224,6 +244,11 @@ class ESP32Bridge(Node):
             if any(k in data for k in ('imu_quat', 'imu_gyro', 'imu_lin_acc')):
                 self.publish_imu(data)
 
+            # Ultrasonic (accept several formats)
+            # Format A: {"ultra":[left,middle,right]}
+            if 'ultra' in data:
+                self.publish_ultrasonic_triplet(data['ultra'])
+
     def publish_enc_vel(self, enc_list):
         if not isinstance(enc_list, list):
             self.get_logger().warn('enc_vel is not a list from ESP32')
@@ -274,6 +299,41 @@ class ESP32Bridge(Node):
             return
 
         self.pub_imu.publish(imu_msg)
+
+    def publish_ultrasonic_triplet(self, arr):
+        if not isinstance(arr, list) or len(arr) != 3:
+            self.get_logger().warn('Ultrasonic data is not [L,M,R]')
+            return
+
+        try:
+            l = float(arr[0])
+            m = float(arr[1])
+            r = float(arr[2])
+        except (TypeError, ValueError):
+            self.get_logger().warn('Invalid ultrasonic values')
+            return
+
+        now = self.get_clock().now().to_msg()
+
+        def mk_range(frame_id, val_m):
+            msg = Range()
+            msg.header.stamp = now
+            msg.header.frame_id = frame_id
+            msg.radiation_type = Range.ULTRASOUND
+            msg.field_of_view = float(self.ultra_fov_rad)
+            msg.min_range = float(self.ultra_min_m)
+            msg.max_range = float(self.ultra_max_m)
+            # clamp
+            if val_m < msg.min_range:
+                val_m = msg.min_range
+            if val_m > msg.max_range:
+                val_m = msg.max_range
+            msg.range = float(val_m)
+            return msg
+
+        self.pub_ultra_left.publish(mk_range(self.ultra_frame_left, l))
+        self.pub_ultra_middle.publish(mk_range(self.ultra_frame_middle, m))
+        self.pub_ultra_right.publish(mk_range(self.ultra_frame_right, r))
 
 
 

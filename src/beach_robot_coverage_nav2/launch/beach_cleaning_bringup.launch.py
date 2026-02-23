@@ -12,6 +12,7 @@ def generate_launch_description():
     nav2_params = LaunchConfiguration('nav2_params')
     keepout_mask_yaml = LaunchConfiguration('keepout_mask_yaml')
     start_coverage = LaunchConfiguration('start_coverage')
+    start_delay_sec = LaunchConfiguration('start_delay_sec')
 
     pkg = get_package_share_directory('beach_robot_coverage_nav2')
     default_nav2_params = os.path.join(pkg, 'config', 'nav2_params_keepout.yaml')
@@ -22,6 +23,7 @@ def generate_launch_description():
         DeclareLaunchArgument('nav2_params', default_value=default_nav2_params),
         DeclareLaunchArgument('keepout_mask_yaml', default_value=default_keepout_mask_yaml),
         DeclareLaunchArgument('start_coverage', default_value='true'),
+        DeclareLaunchArgument('start_delay_sec', default_value='15.0'),
     ]
 
     keepout_mask_server = Node(
@@ -89,7 +91,7 @@ def generate_launch_description():
 
             # --- run ---
             'autostart': start_coverage,
-            'start_delay_sec': 6.0,
+            'start_delay_sec': start_delay_sec,
         }],
     )
 

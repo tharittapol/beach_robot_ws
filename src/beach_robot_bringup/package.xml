@@ -4,7 +4,7 @@
   <name>beach_robot_bringup</name>
   <version>0.0.0</version>
   <description>Bringup package for Beach Robot hardware deployment</description>
-  <maintainer email="YOUR_EMAIL">YOUR_NAME</maintainer>
+  <maintainer email="todo@example.com">todo</maintainer>
   <license>MIT</license>
 
   <exec_depend>launch</exec_depend>

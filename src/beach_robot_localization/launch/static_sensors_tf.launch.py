@@ -21,6 +21,16 @@ def generate_launch_description():
     zed_xyz = (0.12, 0.00, 0.25)   # meters
     zed_rpy = (0.0, 0.0, 0.0)      # radians
 
+    # base_link -> ultrasonic links (front sensors)
+    ultra_mid_xyz = (0.25, 0.00, 0.12)
+    ultra_mid_rpy = (0.0, 0.0, 0.0)
+
+    ultra_left_xyz = (0.25, 0.15, 0.12)
+    ultra_left_rpy = (0.0, 0.0, 0.0)
+
+    ultra_right_xyz = (0.25, -0.15, 0.12)
+    ultra_right_rpy = (0.0, 0.0, 0.0)
+
     def static_tf(name, xyz, rpy, parent, child):
         return Node(
             package='tf2_ros',
@@ -39,4 +49,7 @@ def generate_launch_description():
         static_tf('tf_base_to_gps', gps_xyz, gps_rpy, 'base_link', 'gps_link'),
         static_tf('tf_base_to_gnss_heading', head_xyz, head_rpy, 'base_link', 'gnss_heading_link'),
         static_tf('tf_base_to_zed', zed_xyz, zed_rpy, 'base_link', 'zed_camera_link'),
+        static_tf('tf_base_to_ultra_left', ultra_left_xyz, ultra_left_rpy, 'base_link', 'ultra_left_link'),
+        static_tf('tf_base_to_ultra_middle', ultra_mid_xyz, ultra_mid_rpy, 'base_link', 'ultra_middle_link'),
+        static_tf('tf_base_to_ultra_right', ultra_right_xyz, ultra_right_rpy, 'base_link', 'ultra_right_link'),
     ])

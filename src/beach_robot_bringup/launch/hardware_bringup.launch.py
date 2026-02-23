@@ -70,6 +70,12 @@ def generate_launch_description():
         }
     ))
 
+    # 2.5) Static sensor TFs (IMU/GPS/ZED/Ultrasonic frames)
+    ld.add_action(include_launch(
+        'beach_robot_localization',
+        'launch/static_sensors_tf.launch.py'
+    ))
+
     # 3) localization (EKF + odom)
     ld.add_action(include_launch(
         'beach_robot_localization',
@@ -91,7 +97,7 @@ def generate_launch_description():
     ))
 
     # 6) Nav2/Coverage
-    # - ถ้า use_nav2_only=true ให้คุณไปเติม beach_robot_nav2 bringup ใน Step 4
+    # - ถ้า use_nav2_only=true ให้คุณไปเติม beach_robot_nav2 bringup
     # - ถ้า use_coverage=true ใช้ coverage bringup เดิม
     ld.add_action(include_launch(
         'beach_robot_coverage_nav2',
