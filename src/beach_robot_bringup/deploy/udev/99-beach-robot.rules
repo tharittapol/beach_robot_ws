@@ -1,2 +1,23 @@
-SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", SYMLINK+="esp32_beach", MODE="0666"
-SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="gnss_um982", MODE="0666"
+# =========================
+# Beach Robot persistent device names (Jetson Orin Nano)
+# =========================
+
+# ---- ZED Mini (USB device on port 2.2) -> /dev/cam ----
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.2", SYMLINK+="cam"
+# vendor/product fallback rule
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="2b03", ATTR{idProduct}=="f681", SYMLINK+="cam"
+
+# ---- ESP32 (Silicon Labs CP210x on port 2.3) -> /dev/esp32 (USB node) ----
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.3", SYMLINK+="esp32"
+
+# ---- ESP32 serial port -> /dev/ttyESP32 (stable for ROS/bridge) ----
+# CP210x usually appears as /dev/ttyUSB*
+SUBSYSTEM=="tty", ENV{ID_VENDOR_ID}=="10c4", ENV{ID_MODEL_ID}=="ea60", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.3:1.0", \
+  SYMLINK+="ttyESP32", GROUP="dialout", MODE="0660"
+
+# ---- GNSS (FTDI on port 2.4) -> /dev/gnss (USB node) ----
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.4", SYMLINK+="gnss"
+
+# ---- GNSS serial port (FTDI interface 1.0) -> /dev/ttyGNSS ----
+SUBSYSTEM=="tty", ENV{ID_VENDOR_ID}=="0403", ENV{ID_MODEL_ID}=="6015", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.4:1.0", \
+  SYMLINK+="ttyGNSS", GROUP="dialout", MODE="0660"
