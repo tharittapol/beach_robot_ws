@@ -14,10 +14,10 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='orin_nano',
-    maintainer_email='tharitpol.big@gmail.com',
+    maintainer='todo',
+    maintainer_email='todo@example.com',
     description='TODO: Package description',
-    license='TODO: License declaration',
+    license='MIT',
     extras_require={
         'test': [
             'pytest',

@@ -9,19 +9,19 @@ def generate_launch_description():
             name='um982_ntrip_bridge',
             output='screen',
             parameters=[{
-                'port': '/dev/ttyUSB0',
+                'port': '/dev/ttyGNSS',
                 'baud': 115200,
                 'frame_id': 'gps_link',
 
                 'ntrip_host': 'rtk2go.com',
                 'ntrip_port': 2101,
-                'mountpoint': 'TH-Kukot',
+                'mountpoint': 'Pump236',
 
                 # rtk2go: email conversion + password none
-                'username': 'tharittapol.big-at-gmail-d-com',
+                'username': 'wachiramate-at-gmail-d-com',
                 'password': 'none',
 
-                'gga_send_period': 1.0
+                'gga_send_period': 0.5
             }],
         ),
     ])

@@ -4,8 +4,11 @@
   <name>beach_robot_localization</name>
   <version>0.0.0</version>
   <description>TODO: Package description</description>
-  <maintainer email="tharitpol@gmail.com">big</maintainer>
-  <license>TODO: License declaration</license>
+  <maintainer email="todo@example.com">todo</maintainer>
+  <license>MIT</license>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
 
   <depend>rclpy</depend>
   <depend>std_msgs</depend>
