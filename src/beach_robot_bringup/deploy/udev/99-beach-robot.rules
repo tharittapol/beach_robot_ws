@@ -2,6 +2,9 @@
 # Beach Robot persistent device names (Jetson Orin Nano)
 # =========================
 
+# ---- Logitech joy (USB device on port 2.1) ----
+SUBSYSTEM=="input", KERNEL=="js*", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.1:1.0", SYMLINK+="input/js_joy", MODE:="0660", GROUP:="input"
+
 # ---- ZED Mini (USB device on port 2.2) -> /dev/cam ----
 SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.2", SYMLINK+="cam"
 # vendor/product fallback rule

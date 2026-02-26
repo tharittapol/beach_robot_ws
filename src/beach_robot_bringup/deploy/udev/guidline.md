@@ -1,6 +1,6 @@
 ## ต้องรู้ VID/PID ของอุปกรณ์
 ```bash
-udevadm info -a -n /dev/ttyACM0 | head -n 80
+udevadm monitor --udev --property
 ```
 
 ## ติดตั้ง rule:
@@ -12,5 +12,5 @@ sudo udevadm trigger
 
 ## เช็ค:
 ```bash
-ls -l /dev/esp32_beach /dev/gnss_um982
+ls -l /dev/ttyESP32 /dev/input/js_joy /dev/ttyGNSS /dev/cam
 ```
