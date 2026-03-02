@@ -76,7 +76,7 @@ static constexpr int   SPROCKET_ENCODER_TEETH = 9; // encoder sprocket teeth
 
 // track effective radius (treat as round drive wheel)
 // static constexpr float TRACK_R_EFF_M = (TRACK_PITCH_M * (float)SPROCKET_OUT_TEETH) / (2.0f * PI_F);
-static constexpr float TRACK_R_EFF_M = 0.115f; // 11.5 cm
+static constexpr float TRACK_R_EFF_M = 0.115f; // 11.5 cm (real measure)
 
 // ================== CONFIG 4 WHEELS ==================
 // Pins: ENC1(32,33), ENC2(25,26), ENC3(27,14), ENC4(12,13)
@@ -87,7 +87,7 @@ static WheelConfig WCFG[4] = {
     .pinA=32, .pinB=33,
     .encoder_ppr=360, .decode_x=4, .sign=+1,
     .driveTeeth=(float)SPROCKET_DRIVE_TEETH, .encoderTeeth=(float)SPROCKET_ENCODER_TEETH, // 9:9 = 1:1
-    .driveRevPerOutputRev=((float)SPROCKET_OUT_TEETH / (float)SPROCKET_DRIVE_TEETH),      // 15/9
+    .driveRevPerOutputRev=3.1180556f,      // counts_per_output_rev / counts_per_encoder_rev 4492/1440
     .model=MODEL_ROUND,
     .radius_m=TRACK_R_EFF_M,
     .vel_lpf_alpha=0.25f
@@ -98,7 +98,7 @@ static WheelConfig WCFG[4] = {
     .pinA=25, .pinB=26,
     .encoder_ppr=360, .decode_x=4, .sign=-1,
     .driveTeeth=(float)SPROCKET_DRIVE_TEETH, .encoderTeeth=(float)SPROCKET_ENCODER_TEETH,
-    .driveRevPerOutputRev=((float)SPROCKET_OUT_TEETH / (float)SPROCKET_DRIVE_TEETH),
+    .driveRevPerOutputRev=2.9625f, // 4266/1440
     .model=MODEL_ROUND,
     .radius_m=TRACK_R_EFF_M,
     .vel_lpf_alpha=0.25f
