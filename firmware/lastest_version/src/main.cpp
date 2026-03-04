@@ -80,7 +80,7 @@ static inline float clampf(float x, float lo, float hi) {
 
 static inline float safeFloat(float x) { return isfinite(x) ? x : 0.0f; }
 
-// ✅ LineReader แยก state กัน Serial/Serial2 ปนกัน
+//
 struct LineReader {
   size_t n = 0;
 

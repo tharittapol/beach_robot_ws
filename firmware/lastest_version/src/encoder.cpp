@@ -95,8 +95,10 @@ static bool pcnt_begin_one(int idx) {
 
 static inline int32_t pcnt_read_delta_clear(int idx) {
   int16_t v = 0;
+  pcnt_counter_pause(S[idx].unit);
   pcnt_get_counter_value(S[idx].unit, &v);
   pcnt_counter_clear(S[idx].unit);
+  pcnt_counter_resume(S[idx].unit);
   return (int32_t)v;
 }
 
