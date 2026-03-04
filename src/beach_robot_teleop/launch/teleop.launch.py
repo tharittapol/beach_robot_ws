@@ -11,7 +11,7 @@ def generate_launch_description():
             name='joy_node',
             output='screen',
             parameters=[{
-                'device': '/dev/input/js0',
+                'device': 'js_joy',
                 'deadzone': 0.05,
                 'autorepeat_rate': 20.0,
             }]
@@ -24,8 +24,8 @@ def generate_launch_description():
             name='teleop_4wd',
             output='screen',
             parameters=[{
-                'max_linear': 0.5,
-                'max_angular': 1.0,
+                'max_linear': 1.0,
+                'max_angular': 0.5,
                 'axis_linear': 1,
                 'axis_angular': 0,
                 'scale_linear': 1.0,

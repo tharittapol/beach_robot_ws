@@ -81,6 +81,7 @@ class Teleop4WDSkid(Node):
 
         # Button state tracking (for edge + hold detection)
         self.prev_a = False
+        self.prev_b = False
         self.prev_x = False
         self.prev_y = False
 
@@ -323,6 +324,7 @@ class Teleop4WDSkid(Node):
 
         # update previous button states
         self.prev_a = a_pressed
+        self.prev_b = b_pressed
         self.prev_x = x_pressed
         self.prev_y = y_pressed
 

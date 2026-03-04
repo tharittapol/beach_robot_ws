@@ -8,7 +8,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument(
             "port",
-            default_value="/dev/esp32_beach",
+            default_value="/dev/ttyESP32",
             description="Serial port for ESP32 bridge"
         ),
         DeclareLaunchArgument(
