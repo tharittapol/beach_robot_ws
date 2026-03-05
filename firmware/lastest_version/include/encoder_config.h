@@ -87,7 +87,7 @@ static WheelConfig WCFG[4] = {
     .pinA=32, .pinB=33,
     .encoder_ppr=360, .decode_x=4, .sign=+1,
     .driveTeeth=(float)SPROCKET_DRIVE_TEETH, .encoderTeeth=(float)SPROCKET_ENCODER_TEETH, // 9:9 = 1:1
-    .driveRevPerOutputRev=3.1180556f,      // counts_per_output_rev / counts_per_encoder_rev 4492/1440
+    .driveRevPerOutputRev=2.92708333f,      // counts_per_output_rev / counts_per_encoder_rev 4215/1440
     .model=MODEL_ROUND,
     .radius_m=TRACK_R_EFF_M,
     .vel_lpf_alpha=0.25f
@@ -98,7 +98,7 @@ static WheelConfig WCFG[4] = {
     .pinA=25, .pinB=26,
     .encoder_ppr=360, .decode_x=4, .sign=-1,
     .driveTeeth=(float)SPROCKET_DRIVE_TEETH, .encoderTeeth=(float)SPROCKET_ENCODER_TEETH,
-    .driveRevPerOutputRev=2.9625f, // 4266/1440
+    .driveRevPerOutputRev=2.97708333f, // 4287/1440
     .model=MODEL_ROUND,
     .radius_m=TRACK_R_EFF_M,
     .vel_lpf_alpha=0.25f
@@ -109,7 +109,7 @@ static WheelConfig WCFG[4] = {
     .pinA=27, .pinB=14,
     .encoder_ppr=360, .decode_x=4, .sign=+1,
     .driveTeeth=1, .encoderTeeth=1,
-    .driveRevPerOutputRev=1.0f,
+    .driveRevPerOutputRev=1.0f, //1445/1440
     .model=MODEL_ROUND,
     .radius_m=ROUND_WHEEL_R_M,
     .vel_lpf_alpha=0.25f
@@ -117,7 +117,7 @@ static WheelConfig WCFG[4] = {
 
   // -------- Wheel 4 (RR) : ROUND --------
   {
-    .pinA=36, .pinB=35,
+    .pinA=39, .pinB=35,
     .encoder_ppr=360, .decode_x=4, .sign=-1,
     .driveTeeth=1, .encoderTeeth=1,
     .driveRevPerOutputRev=1.0f,

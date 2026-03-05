@@ -15,11 +15,10 @@ struct LineReader {
     }
     return false;
   }
-  
 };
 static LineReader lr_cmd;
 
-// ส่งข้อมูลไป MAIN ผ่าน UART2 (Serial2)
+// schedule
 static uint32_t last_upd_ms = 0;
 static uint32_t last_tx_ms  = 0;
 
@@ -39,10 +38,9 @@ void setup() {
 void loop() {
   const uint32_t now = millis();
 
-  // 1) non-blocking RX from MAIN for buzzer command (e.g. "B:1.5")
+  // 1) RX from MAIN (buzzer)
   static char cmdline[64];
   if (lr_cmd.read(Serial2, cmdline, sizeof(cmdline))) {
-    // cmdline is a full line
     if (strncmp(cmdline, "B:", 2) == 0) {
       float duration_sec = atof(cmdline + 2);
       set_buzzer_duration(duration_sec);
@@ -57,12 +55,11 @@ void loop() {
     encoder_update(dt_s);
   }
 
-  // 3) tx to MAIN @100Hz (match control loop)
-  if (now - last_tx_ms >= 10) {
+  // 3) tx to MAIN @50Hz (สบาย ๆ ที่ 115200)
+  if (now - last_tx_ms >= 20) {
     last_tx_ms = now;
 
     EncoderData e = encoder_get();
-
     Serial2.printf(
       "{\"enc_vel\":[%.6f,%.6f,%.6f,%.6f],\"wheel_cnt\":[%lld,%lld,%lld,%lld],\"t_ms\":%lu}\n",
       e.w[0].vel_mps, e.w[1].vel_mps, e.w[2].vel_mps, e.w[3].vel_mps,
