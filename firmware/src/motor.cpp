@@ -15,6 +15,13 @@
 #define PWM_RR 12
 #define DIR_RR 13
 
+enum WheelIndex {
+  WHEEL_FL = 0,
+  WHEEL_FR = 1,
+  WHEEL_RL = 2,
+  WHEEL_RR = 3,
+};
+
 // ================== tuning ==================
 static constexpr bool ENABLE_RR = true;
 
@@ -22,8 +29,10 @@ static constexpr int PWM_MAX = 255;
 static constexpr float U_DEADBAND = 0.03f;
 
 // ตั้งค่าหลัง “เทสบนพื้นจริง”
-static int PWM_START[4] = { 40, 40, 40, 40 };  // ออกตัว
-static int PWM_HOLD [4] = { 25, 25, 25, 25 };  // หมุนต่อ
+// RR needs more breakaway torque than the other wheels, so keep its minimum
+// output a little higher instead of pushing Kp harder.
+static int PWM_START[4] = { 40, 40, 40, 55 };  // ออกตัว
+static int PWM_HOLD [4] = { 25, 25, 25, 28 };  // หมุนต่อ
 
 static constexpr uint32_t KICK_MS = 200;      // เวลา kick ช่วยให้หลุด static friction
 
