@@ -1,7 +1,6 @@
 // * ref: https://www.instructables.com/Tutorial-How-to-Build-Range-Detector-Using-Arduino/
 
 #include "ultrasonic.h"
-
 #include <Arduino.h>
 
 static constexpr int TRIG_LEFT   = 18;

@@ -1,5 +1,4 @@
 #include "encoder.h"
-#include "encoder_config.h"
 #include "driver/pcnt.h"
 
 // ===== enable wheels (FL, FR, RL, RR) =====
