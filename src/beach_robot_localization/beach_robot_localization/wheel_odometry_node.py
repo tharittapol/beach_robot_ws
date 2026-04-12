@@ -12,10 +12,13 @@ from tf_transformations import quaternion_from_euler
 class WheelOdometryNode(Node):
     """
     Input:
-      /enc_vel  std_msgs/Float32MultiArray [FL, FR, RL, RR]  (m/s)
+      /enc_vel  std_msgs/Float32MultiArray [FL, FR, RL, RR] (m/s)
 
     Output:
       /wheel/odom nav_msgs/Odometry (odom -> base_link pose + twist)
+
+    Model:
+      Asymmetric 4WD skid-steer with a narrower front axle and a wider rear axle.
     """
 
     def __init__(self):
@@ -25,15 +28,17 @@ class WheelOdometryNode(Node):
         self.declare_parameter('enc_vel_topic', 'enc_vel')
         self.declare_parameter('odom_topic', 'wheel/odom')
 
-        self.declare_parameter('track_width', 0.60)  # meters (left-right distance)
+        self.declare_parameter('front_track_width', 0.75)
+        self.declare_parameter('rear_track_width', 1.17)
         self.declare_parameter('base_frame_id', 'base_link')
         self.declare_parameter('odom_frame_id', 'odom')
-        self.declare_parameter('publish_rate', 50.0)  # Hz publish odom even if slow enc_vel
-        self.declare_parameter('timeout_sec', 0.5)     # if no enc_vel, use v=0
+        self.declare_parameter('publish_rate', 50.0)
+        self.declare_parameter('timeout_sec', 0.5)
 
         self.enc_vel_topic = self.get_parameter('enc_vel_topic').value
         self.odom_topic = self.get_parameter('odom_topic').value
-        self.track_width = float(self.get_parameter('track_width').value)
+        self.front_track_width = float(self.get_parameter('front_track_width').value)
+        self.rear_track_width = float(self.get_parameter('rear_track_width').value)
         self.base_frame_id = self.get_parameter('base_frame_id').value
         self.odom_frame_id = self.get_parameter('odom_frame_id').value
         self.publish_rate = float(self.get_parameter('publish_rate').value)
@@ -47,7 +52,6 @@ class WheelOdometryNode(Node):
         self.last_enc_time = None
         self.last_update_time = self.get_clock().now()
 
-        # latest wheel velocities
         self.v_fl = 0.0
         self.v_fr = 0.0
         self.v_rl = 0.0
@@ -67,7 +71,11 @@ class WheelOdometryNode(Node):
         self.timer = self.create_timer(period, self.update)
 
         self.get_logger().info(
-            f'Wheel odometry: sub={self.enc_vel_topic} pub={self.odom_topic} track_width={self.track_width}'
+            'Wheel odometry: '
+            f'sub={self.enc_vel_topic} '
+            f'pub={self.odom_topic} '
+            f'front_track_width={self.front_track_width:.3f} '
+            f'rear_track_width={self.rear_track_width:.3f}'
         )
 
     def enc_cb(self, msg: Float32MultiArray):
@@ -82,6 +90,22 @@ class WheelOdometryNode(Node):
 
         self.last_enc_time = self.get_clock().now()
 
+    def compute_body_twist(self):
+        vx = 0.25 * (self.v_fl + self.v_fr + self.v_rl + self.v_rr)
+
+        front_delta = self.v_fr - self.v_fl
+        rear_delta = self.v_rr - self.v_rl
+        denom = (self.front_track_width ** 2) + (self.rear_track_width ** 2)
+        if denom <= 1e-9:
+            wz = 0.0
+        else:
+            wz = (
+                (self.front_track_width * front_delta) +
+                (self.rear_track_width * rear_delta)
+            ) / denom
+
+        return vx, wz
+
     def update(self):
         now = self.get_clock().now()
         dt = (now - self.last_update_time).nanoseconds / 1e9
@@ -89,26 +113,19 @@ class WheelOdometryNode(Node):
             return
         self.last_update_time = now
 
-        # If enc_vel is stale, stop
         if self.last_enc_time is None:
-            v_left = 0.0
-            v_right = 0.0
+            v = 0.0
+            w = 0.0
         else:
             age = (now - self.last_enc_time).nanoseconds / 1e9
             if age > self.timeout_sec:
-                v_left = 0.0
-                v_right = 0.0
+                v = 0.0
+                w = 0.0
             else:
-                # skid left/right speed = average of front & rear on each side
-                v_left = 0.5 * (self.v_fl + self.v_rl)
-                v_right = 0.5 * (self.v_fr + self.v_rr)
+                v, w = self.compute_body_twist()
 
-        v = 0.5 * (v_left + v_right)
-        w = (v_right - v_left) / max(self.track_width, 1e-6)
-
-        # integrate pose in odom
         self.yaw += w * dt
-        self.yaw = math.atan2(math.sin(self.yaw), math.cos(self.yaw))  # wrap
+        self.yaw = math.atan2(math.sin(self.yaw), math.cos(self.yaw))
 
         self.x += v * math.cos(self.yaw) * dt
         self.y += v * math.sin(self.yaw) * dt
@@ -129,16 +146,15 @@ class WheelOdometryNode(Node):
         odom.twist.twist.linear.y = 0.0
         odom.twist.twist.angular.z = w
 
-        # (optional) put reasonable covariances
-        # smaller = more trusted; adjust later
-        odom.pose.covariance[0] = 0.05 * 0.05   # x
-        odom.pose.covariance[7] = 0.05 * 0.05   # y
-        odom.pose.covariance[35] = 0.10 * 0.10  # yaw
+        odom.pose.covariance[0] = 0.05 * 0.05
+        odom.pose.covariance[7] = 0.05 * 0.05
+        odom.pose.covariance[35] = 0.10 * 0.10
 
-        odom.twist.covariance[0] = 0.10 * 0.10  # vx
-        odom.twist.covariance[35] = 0.20 * 0.20 # wz
+        odom.twist.covariance[0] = 0.10 * 0.10
+        odom.twist.covariance[35] = 0.20 * 0.20
 
         self.pub.publish(odom)
+
 
 
 def main(args=None):

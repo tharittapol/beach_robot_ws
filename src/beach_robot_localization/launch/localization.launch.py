@@ -19,7 +19,8 @@ def generate_launch_description():
             parameters=[{
                 'enc_vel_topic': 'enc_vel',
                 'odom_topic': 'wheel/odom',
-                'track_width': 0.60,
+                'front_track_width': 0.75,
+                'rear_track_width': 1.17,
                 'base_frame_id': 'base_link',
                 'odom_frame_id': 'odom',
             }]

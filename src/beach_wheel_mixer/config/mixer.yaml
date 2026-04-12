@@ -3,10 +3,10 @@ wheel_mps_mixer:
     input_topic: /cmd_vel
     output_topic: /wheel_cmd
 
-    front_track_width: 0.75
-    rear_track_width: 1.17
+    front_track_width: 0.734
+    rear_track_width: 1.179
 
-    turn_gain_front: 0.7
+    turn_gain_front: 1.0
     turn_gain_rear: 1.0
 
     front_left_scale: 1.0
@@ -18,10 +18,14 @@ wheel_mps_mixer:
     cmd_timeout_ms: 300
 
     max_v: 1.0
-    max_w: 1.0
-    max_wheel_mps: 1.5
+    max_w: 0.8
 
-    max_accel_mps2: 0.8
+    max_wheel_fl_mps: 1.36
+    max_wheel_fr_mps: 1.33
+    max_wheel_rl_mps: 6.30
+    max_wheel_rr_mps: 6.85
+
+    max_accel_mps2: 1.0
 
     dir_fl: 1
     dir_fr: 1

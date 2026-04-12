@@ -11,10 +11,11 @@ Drive 10m straight (slow).
 Compare odom distance vs tape measure.
 Adjust wheel_radius until error < 3%.
 
-## 3) Track width
+## 3) Front / Rear track widths
 Spin in place 360 degrees.
 Compare odom yaw vs real rotation.
-Adjust track_width until yaw error < 5 degrees per 360.
+Adjust `front_track_width` and `rear_track_width` together until yaw error < 5 degrees per 360.
+For this robot, start with a narrower front track and a wider rear track.
 
 ## 4) IMU orientation
 Ensure IMU axes match ROS convention.
