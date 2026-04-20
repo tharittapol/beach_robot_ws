@@ -27,6 +27,12 @@ ros2 launch beach_wheel_mixer wheel_mps_mixer.launch.py
 ros2 run beach_robot_bringup wheel_response_test --label lifted_after_fix
 ```
 
+The default profile is intentionally gentle for lifted-wheel testing:
+
+- forward/backward linear speed: `0.17 m/s`
+- spin-in-place angular speed: `0.20 rad/s`
+- curve linear/angular speed: `0.12 m/s`, `0.08 rad/s`
+
 The default sequence is:
 
 - forward
@@ -47,10 +53,11 @@ CSV and metadata files are written to:
 ```bash
 ros2 run beach_robot_bringup wheel_response_test \
   --label lifted_slow \
-  --forward-speed 0.20 \
-  --spin-rate 0.30 \
-  --curve-speed 0.18 \
-  --curve-rate 0.22 \
+  --forward-speed 0.17 \
+  --spin-rate 0.20 \
+  --curve-speed 0.12 \
+  --curve-rate 0.08 \
+  --debug-rate-ms 250 \
   --step-sec 5.0
 ```
 
@@ -66,6 +73,10 @@ Analyze a CSV summary:
 ros2 run beach_robot_bringup wheel_response_analyze \
   ~/beach_robot_logs/wheel_response/wheel_response_YYYYMMDD_HHMMSS_lifted_after_fix.csv
 ```
+
+If `cmdbad%` is high, the ESP32 did not receive/hold the same wheel command
+that ROS published. Re-run with a slower debug stream such as
+`--debug-rate-ms 500` before tuning motor constants from that log.
 
 ## Logged Signals
 

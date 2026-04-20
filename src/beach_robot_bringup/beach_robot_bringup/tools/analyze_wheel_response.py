@@ -5,6 +5,22 @@ from collections import defaultdict
 
 
 WHEEL_NAMES = ("fl", "fr", "rl", "rr")
+DEFAULT_MAX_REASONABLE_CMD_MPS = 3.0
+DEFAULT_MAX_REASONABLE_ENC_MPS = 5.0
+DEFAULT_MOTOR_ZERO_EPS = 0.003
+CMD_MISMATCH_MPS = 0.02
+WHEEL_CIRC_M = {
+    "fl": 2.0 * math.pi * 0.115,
+    "fr": 2.0 * math.pi * 0.115,
+    "rl": math.pi * 0.3202,
+    "rr": math.pi * 0.3202,
+}
+COUNTS_PER_OUTPUT_REV = {
+    "fl": 1440.0 * 2.92708333,
+    "fr": 1440.0 * 2.97708333,
+    "rl": 1440.0,
+    "rr": 1440.0,
+}
 
 
 def to_float(value):
@@ -38,13 +54,64 @@ def pct(count, total):
     return 100.0 * count / total
 
 
+def count_present(values):
+    return sum(1 for value in values if value is not None)
+
+
 def fmt(value, digits=3):
     if value is None:
         return "-"
     return f"{value:.{digits}f}"
 
 
-def analyze(csv_path, phase):
+def reasonable_abs(value, max_abs):
+    return value is not None and abs(value) <= max_abs
+
+
+def select_command(ros_cmd, dbg_cmd, cmd_source, max_cmd_mps):
+    if cmd_source == "debug":
+        if reasonable_abs(dbg_cmd, max_cmd_mps):
+            return dbg_cmd
+        return ros_cmd if reasonable_abs(ros_cmd, max_cmd_mps) else None
+
+    if reasonable_abs(ros_cmd, max_cmd_mps):
+        return ros_cmd
+    return dbg_cmd if reasonable_abs(dbg_cmd, max_cmd_mps) else None
+
+
+def command_mismatch(cmd, dbg_cmd, max_cmd_mps):
+    if dbg_cmd is None:
+        return False
+    return not reasonable_abs(dbg_cmd, max_cmd_mps) or abs(dbg_cmd - cmd) > CMD_MISMATCH_MPS
+
+
+def select_encoder_values(ros_enc_vals, dbg_enc_vals, enc_source):
+    if enc_source == "ros":
+        return ros_enc_vals, "ros"
+    if enc_source == "debug":
+        return dbg_enc_vals, "dbg"
+
+    if count_present(dbg_enc_vals) >= max(1, count_present(ros_enc_vals) // 2):
+        return dbg_enc_vals, "dbg"
+    return ros_enc_vals, "ros"
+
+
+def debug_elapsed(row_elapsed, debug_age):
+    if row_elapsed is None or debug_age is None:
+        return row_elapsed
+    return row_elapsed - debug_age
+
+
+def analyze(
+    csv_path,
+    phase,
+    cmd_source,
+    enc_source,
+    max_cmd_mps,
+    max_enc_mps,
+    motor_zero_eps,
+    drop_cmd_mismatch,
+):
     groups = defaultdict(list)
     with open(csv_path, newline="") as f:
         reader = csv.DictReader(f)
@@ -59,39 +126,99 @@ def analyze(csv_path, phase):
     summaries = []
     for test, rows in groups.items():
         for wheel in WHEEL_NAMES:
-            cmd_key = f"dbg_wheel_cmd_{wheel}"
-            enc_key = f"dbg_enc_vel_corr_{wheel}"
+            ros_cmd_key = f"ros_wheel_cmd_{wheel}"
+            dbg_cmd_key = f"dbg_wheel_cmd_{wheel}"
+            ros_enc_key = f"ros_enc_vel_{wheel}"
+            dbg_enc_key = f"dbg_enc_vel_corr_{wheel}"
             motor_key = f"dbg_motor_u_{wheel}"
+            cnt_key = f"dbg_wheel_cnt_{wheel}"
 
-            cmd_vals = [to_float(r.get(cmd_key)) for r in rows]
-            enc_vals = [to_float(r.get(enc_key)) for r in rows]
+            elapsed_vals = [to_float(r.get("elapsed_sec")) for r in rows]
+            debug_age_vals = [to_float(r.get("debug_age_sec")) for r in rows]
+            debug_elapsed_vals = [
+                debug_elapsed(elapsed, debug_age)
+                for elapsed, debug_age in zip(elapsed_vals, debug_age_vals)
+            ]
+            ros_cmd_vals = [to_float(r.get(ros_cmd_key)) for r in rows]
+            dbg_cmd_vals = [to_float(r.get(dbg_cmd_key)) for r in rows]
+            ros_enc_vals = [to_float(r.get(ros_enc_key)) for r in rows]
+            dbg_enc_vals = [to_float(r.get(dbg_enc_key)) for r in rows]
             motor_vals = [to_float(r.get(motor_key)) for r in rows]
+            cnt_vals = [to_float(r.get(cnt_key)) for r in rows]
+
+            enc_vals, selected_enc_source = select_encoder_values(
+                ros_enc_vals,
+                dbg_enc_vals,
+                enc_source,
+            )
 
             samples = [
-                (cmd, enc, motor)
-                for cmd, enc, motor in zip(cmd_vals, enc_vals, motor_vals)
-                if cmd is not None and enc is not None and motor is not None
+                (
+                    elapsed,
+                    dbg_elapsed,
+                    cmd,
+                    dbg_cmd,
+                    enc,
+                    motor,
+                    cnt,
+                    command_mismatch(cmd, dbg_cmd, max_cmd_mps) if cmd is not None else False,
+                )
+                for elapsed, dbg_elapsed, ros_cmd, dbg_cmd, enc, motor, cnt in zip(
+                    elapsed_vals,
+                    debug_elapsed_vals,
+                    ros_cmd_vals,
+                    dbg_cmd_vals,
+                    enc_vals,
+                    motor_vals,
+                    cnt_vals,
+                )
+                for cmd in (select_command(ros_cmd, dbg_cmd, cmd_source, max_cmd_mps),)
+                if enc is not None
             ]
-            active = [(cmd, enc, motor) for cmd, enc, motor in samples if abs(cmd) >= 0.01]
+            raw_active = [
+                (elapsed, dbg_elapsed, cmd, dbg_cmd, enc, motor, cnt, cmd_bad)
+                for elapsed, dbg_elapsed, cmd, dbg_cmd, enc, motor, cnt, cmd_bad in samples
+                if cmd is not None and abs(cmd) >= 0.01
+            ]
+            active = [
+                sample
+                for sample in raw_active
+                if abs(sample[4]) <= max_enc_mps and (not drop_cmd_mismatch or not sample[7])
+            ]
             if not active:
                 continue
 
-            abs_errors = [abs(cmd - enc) for cmd, enc, _ in active]
-            signed_errors = [cmd - enc for cmd, enc, _ in active]
-            abs_cmd = [abs(cmd) for cmd, _, _ in active]
-            abs_enc = [abs(enc) for _, enc, _ in active]
+            abs_errors = [abs(cmd - enc) for _, _, cmd, _, enc, _, _, _ in active]
+            signed_errors = [cmd - enc for _, _, cmd, _, enc, _, _, _ in active]
+            abs_cmd = [abs(cmd) for _, _, cmd, _, _, _, _, _ in active]
+            abs_enc = [abs(enc) for _, _, _, _, enc, _, _, _ in active]
 
-            zero_motor = sum(1 for _, _, motor in active if abs(motor) < 0.03)
-            sign_bad = sum(1 for cmd, enc, _ in active if sign_of(cmd) * sign_of(enc) < 0)
+            motor_samples = [motor for _, _, _, _, _, motor, _, _ in active if motor is not None]
+            zero_motor = sum(1 for motor in motor_samples if abs(motor) < motor_zero_eps)
+            sign_bad = sum(1 for _, _, cmd, _, enc, _, _, _ in active if sign_of(cmd) * sign_of(enc) < 0)
+            dbg_cmd_samples = [
+                (cmd, dbg_cmd, cmd_bad)
+                for _, _, cmd, dbg_cmd, _, _, _, cmd_bad in raw_active
+                if dbg_cmd is not None
+            ]
+            cmd_bad = sum(1 for _, _, is_bad in dbg_cmd_samples if is_bad)
 
             motor_flips = 0
+            count_jumps = 0
             last_sign = 0
-            for _, _, motor in active:
-                s = sign_of(motor, eps=0.03)
+            last_cnt = None
+            for _, _, _, _, _, motor, cnt, _ in active:
+                if motor is None:
+                    continue
+                s = sign_of(motor, eps=motor_zero_eps)
                 if s != 0 and last_sign != 0 and s != last_sign:
                     motor_flips += 1
                 if s != 0:
                     last_sign = s
+                if cnt is not None and last_cnt is not None and abs(cnt - last_cnt) > 5000:
+                    count_jumps += 1
+                if cnt is not None:
+                    last_cnt = cnt
 
             ratio = None
             mean_abs_cmd = mean(abs_cmd)
@@ -99,18 +226,62 @@ def analyze(csv_path, phase):
             if mean_abs_cmd and mean_abs_cmd > 1e-6 and mean_abs_enc is not None:
                 ratio = mean_abs_enc / mean_abs_cmd
 
+            elapsed_active = [elapsed for elapsed, *_ in active if elapsed is not None]
+            duration_sec = None
+            if elapsed_active:
+                duration_sec = max(elapsed_active) - min(elapsed_active)
+
+            debug_elapsed_active = [
+                dbg_elapsed
+                for _, dbg_elapsed, *rest in active
+                if dbg_elapsed is not None and rest[-2] is not None
+            ]
+            count_duration_sec = None
+            if debug_elapsed_active:
+                count_duration_sec = max(debug_elapsed_active) - min(debug_elapsed_active)
+
+            cmd_rev = None
+            if mean_abs_cmd is not None and duration_sec is not None and WHEEL_CIRC_M[wheel] > 0.0:
+                cmd_rev = mean_abs_cmd * duration_sec / WHEEL_CIRC_M[wheel]
+
+            count_cmd_rev = None
+            if (
+                mean_abs_cmd is not None
+                and count_duration_sec is not None
+                and WHEEL_CIRC_M[wheel] > 0.0
+            ):
+                count_cmd_rev = mean_abs_cmd * count_duration_sec / WHEEL_CIRC_M[wheel]
+
+            cnt_values = [cnt for *_, cnt, _ in active if cnt is not None]
+            cnt_rev = None
+            if len(cnt_values) >= 2 and COUNTS_PER_OUTPUT_REV[wheel] > 0.0:
+                cnt_rev = abs(cnt_values[-1] - cnt_values[0]) / COUNTS_PER_OUTPUT_REV[wheel]
+
+            cnt_ratio = None
+            if count_cmd_rev is not None and count_cmd_rev > 1e-6 and cnt_rev is not None:
+                cnt_ratio = cnt_rev / count_cmd_rev
+
             summaries.append({
                 "test": test,
                 "wheel": wheel,
                 "samples": len(active),
+                "raw_samples": len(raw_active),
+                "drop_pct": pct(len(raw_active) - len(active), len(raw_active)),
                 "cmd_abs_mean": mean_abs_cmd,
                 "enc_abs_mean": mean_abs_enc,
                 "ratio": ratio,
                 "error_abs_mean": mean(abs_errors),
                 "error_signed_mean": mean(signed_errors),
-                "zero_motor_pct": pct(zero_motor, len(active)),
+                "zero_motor_pct": pct(zero_motor, len(motor_samples)),
                 "sign_bad_pct": pct(sign_bad, len(active)),
+                "cmd_bad_pct": pct(cmd_bad, len(dbg_cmd_samples)),
                 "motor_flips": motor_flips,
+                "count_jumps": count_jumps,
+                "enc_source": selected_enc_source,
+                "cmd_rev": cmd_rev,
+                "count_cmd_rev": count_cmd_rev,
+                "cnt_rev": cnt_rev,
+                "cnt_ratio": cnt_ratio,
             })
 
     return summaries
@@ -118,23 +289,30 @@ def analyze(csv_path, phase):
 
 def print_summary(summaries):
     if not summaries:
-        print("No command-phase debug samples found. Check /esp32/debug columns in the CSV.")
+        print("No command-phase samples found. Check the CSV phase column and /wheel_cmd, /enc_vel data.")
         return
 
     header = (
         "test",
         "wheel",
+        "encsrc",
         "n",
+        "drop%",
         "|cmd|",
         "|enc|",
         "enc/cmd",
+        "cmdrev",
+        "cntrev",
+        "cnt/cmd",
         "mean|err|",
         "mean err",
         "motor0%",
         "signbad%",
+        "cmdbad%",
         "uflips",
+        "cjumps",
     )
-    widths = (14, 5, 5, 8, 8, 8, 9, 9, 8, 9, 6)
+    widths = (14, 5, 6, 5, 6, 8, 8, 8, 7, 7, 7, 9, 9, 8, 9, 8, 6, 6)
     print(" ".join(h.ljust(w) for h, w in zip(header, widths)))
     print(" ".join("-" * w for w in widths))
 
@@ -142,15 +320,22 @@ def print_summary(summaries):
         values = (
             item["test"],
             item["wheel"],
+            item["enc_source"],
             str(item["samples"]),
+            fmt(item["drop_pct"], 1),
             fmt(item["cmd_abs_mean"]),
             fmt(item["enc_abs_mean"]),
             fmt(item["ratio"]),
+            fmt(item["count_cmd_rev"] if item["cnt_rev"] is not None else item["cmd_rev"], 2),
+            fmt(item["cnt_rev"], 2),
+            fmt(item["cnt_ratio"], 2),
             fmt(item["error_abs_mean"]),
             fmt(item["error_signed_mean"]),
             fmt(item["zero_motor_pct"], 1),
             fmt(item["sign_bad_pct"], 1),
+            fmt(item["cmd_bad_pct"], 1),
             str(item["motor_flips"]),
+            str(item["count_jumps"]),
         )
         print(" ".join(v.ljust(w) for v, w in zip(values, widths)))
 
@@ -159,12 +344,56 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Analyze wheel_response_test CSV logs.")
     parser.add_argument("csv_path", help="CSV generated by wheel_response_test.")
     parser.add_argument("--phase", default="command", help="CSV phase to analyze.")
+    parser.add_argument(
+        "--cmd-source",
+        choices=("ros", "debug"),
+        default="ros",
+        help="Command column used as the reference target. Defaults to ROS /wheel_cmd.",
+    )
+    parser.add_argument(
+        "--enc-source",
+        choices=("auto", "ros", "debug"),
+        default="auto",
+        help="Encoder column used for velocity stats. Defaults to auto.",
+    )
+    parser.add_argument(
+        "--max-cmd-mps",
+        type=float,
+        default=DEFAULT_MAX_REASONABLE_CMD_MPS,
+        help="Reject command samples above this absolute speed as corrupt.",
+    )
+    parser.add_argument(
+        "--max-enc-mps",
+        type=float,
+        default=DEFAULT_MAX_REASONABLE_ENC_MPS,
+        help="Reject encoder velocity samples above this absolute speed as corrupt.",
+    )
+    parser.add_argument(
+        "--motor-zero-eps",
+        type=float,
+        default=DEFAULT_MOTOR_ZERO_EPS,
+        help="Treat abs(motor_u) below this as zero for motor0% and uflips.",
+    )
+    parser.add_argument(
+        "--drop-cmd-mismatch",
+        action="store_true",
+        help="Drop rows where debug wheel_cmd differs from the selected ROS command.",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    summaries = analyze(args.csv_path, args.phase)
+    summaries = analyze(
+        args.csv_path,
+        args.phase,
+        args.cmd_source,
+        args.enc_source,
+        args.max_cmd_mps,
+        args.max_enc_mps,
+        args.motor_zero_eps,
+        args.drop_cmd_mismatch,
+    )
     print_summary(summaries)
 
 

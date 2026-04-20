@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <algorithm>
 
 #include "initial.h"
 #include "imu.h"
@@ -27,9 +28,13 @@ static constexpr float V_CMD_DEADBAND = 0.005f;
 static constexpr float U_MIN = -1.0f;
 static constexpr float U_MAX = 1.0f;
 static constexpr float LOW_SPEED_TARGET_MAX_MPS[WHEEL_COUNT] = { 0.0f, 0.0f, 0.60f, 0.60f };
-static constexpr float ACTIVE_U_FLOOR[WHEEL_COUNT] = { 0.0f, 0.0f, 0.05f, 0.06f };
+static float ACTIVE_U_FLOOR[WHEEL_COUNT] = { 0.0f, 0.0f, 0.008f, 0.008f };
+static constexpr float ACTIVE_FLOOR_DISABLE_ABOVE_TARGET_RATIO = 0.75f;
+static constexpr float CONTROL_ENCODER_MAX_MPS[WHEEL_COUNT] = { 2.0f, 2.0f, 2.0f, 2.0f };
+static constexpr float CONTROL_ENCODER_OVERSPEED_GAIN = 4.0f;
+static constexpr float CONTROL_ENCODER_OVERSPEED_MARGIN_MPS = 0.35f;
 
-static float V_MAX_MPS[WHEEL_COUNT] = { 1.36f, 1.33f, 6.30f, 6.85f }; // wheels on air at battery 25.9 V, tune each wheel step, 2026-03-21
+static float V_MAX_MPS[WHEEL_COUNT] = { 1.25f, 1.10f, 9.70f, 8.60f }; // lifted 0.17 m/s response tune, 2026-04-20
 
 static int ENC_SIGN[WHEEL_COUNT] = { +1, +1, +1, +1 };
 static int MOTOR_SIGN[WHEEL_COUNT] = { +1, +1, +1, +1 };
@@ -89,7 +94,7 @@ static inline bool validWheelIndex(int idx) {
   return idx >= 0 && idx < WHEEL_COUNT;
 }
 
-static float applyActiveDriveFloor(int idx, float cmd_target, float u_cmd) {
+static float applyActiveDriveFloor(int idx, float cmd_target, float measured, float u_cmd) {
   if (!validWheelIndex(idx)) return u_cmd;
 
   const float target_mag = fabsf(cmd_target);
@@ -98,12 +103,40 @@ static float applyActiveDriveFloor(int idx, float cmd_target, float u_cmd) {
   if (target_mag < V_CMD_DEADBAND) return u_cmd;
   if (target_mag > LOW_SPEED_TARGET_MAX_MPS[idx]) return u_cmd;
 
-  // Keep low-speed rear commands from dropping in and out of the motor deadband.
-  if (fabsf(u_cmd) < floor_u || (u_cmd * cmd_target) < 0.0f) {
+  // Only help a wheel that is still too slow. If the encoder already reports
+  // near/above target speed, let PID reduce or reverse the motor command.
+  if ((measured * cmd_target) > 0.0f &&
+      fabsf(measured) >= (target_mag * ACTIVE_FLOOR_DISABLE_ABOVE_TARGET_RATIO)) {
+    return u_cmd;
+  }
+
+  // Do not override a braking/corrective output from the PID.
+  if ((u_cmd * cmd_target) < 0.0f) {
+    return u_cmd;
+  }
+
+  if (fabsf(u_cmd) < floor_u) {
     return copysignf(floor_u, cmd_target);
   }
 
   return u_cmd;
+}
+
+static float encoderFeedbackForControl(int idx, float cmd_target) {
+  if (!validWheelIndex(idx)) return 0.0f;
+
+  float measured = enc_vel_corr[idx];
+  if (!isfinite(measured)) return 0.0f;
+
+  float cap = CONTROL_ENCODER_MAX_MPS[idx];
+  if (fabsf(cmd_target) >= V_CMD_DEADBAND) {
+    const float target_cap =
+      fabsf(cmd_target) * CONTROL_ENCODER_OVERSPEED_GAIN +
+      CONTROL_ENCODER_OVERSPEED_MARGIN_MPS;
+    cap = std::min(cap, target_cap);
+  }
+
+  return clampf(measured, -cap, cap);
 }
 
 struct LineReader {
@@ -154,6 +187,12 @@ static void setVmax(int idx, float vmax_mps) {
   V_MAX_MPS[idx] = vmax_mps;
 }
 
+static void setActiveUFloor(int idx, float floor_u) {
+  if (!validWheelIndex(idx)) return;
+  if (!isfinite(floor_u)) return;
+  ACTIVE_U_FLOOR[idx] = clampf(floor_u, 0.0f, 1.0f);
+}
+
 static void setSignedConfig(int idx, int *dst, int sign_value) {
   if (!validWheelIndex(idx)) return;
   dst[idx] = (sign_value >= 0) ? +1 : -1;
@@ -185,6 +224,8 @@ static void printHelp() {
   Serial.println("  CLOSED <wheel|ALL> <0|1>");
   Serial.println("  ENC_SIGN <wheel|ALL> <-1|1>");
   Serial.println("  MOTOR_SIGN <wheel|ALL> <-1|1>");
+  Serial.println("  PWM_START <wheel|ALL> <0..255>");
+  Serial.println("  PWM_HOLD <wheel|ALL> <0..255>");
   Serial.println("  STEP <wheel> <target_mps> <duration_ms> [closed_loop]");
   Serial.println("  OPEN <wheel> <motor_u> <duration_ms>");
 }
@@ -283,6 +324,7 @@ static bool handleTextCmd(const char *line) {
   float c = 0.0f;
   int enable = 0;
   int sign_value = 1;
+  int pwm_value = 0;
   int wheel = 0;
   unsigned long duration_ms = 0;
 
@@ -342,6 +384,30 @@ static bool handleTextCmd(const char *line) {
       for (int i = 0; i < WHEEL_COUNT; ++i) setSignedConfig(i, MOTOR_SIGN, sign_value);
     } else {
       setSignedConfig(idx, MOTOR_SIGN, sign_value);
+    }
+    return true;
+  }
+
+  if (sscanf(line, "PWM_START %15s %d", selector, &pwm_value) == 2) {
+    int idx = -1;
+    bool all = false;
+    if (!parseWheelSelector(selector, idx, all)) return true;
+    if (all) {
+      for (int i = 0; i < WHEEL_COUNT; ++i) set_motor_pwm_start(i, pwm_value);
+    } else {
+      set_motor_pwm_start(idx, pwm_value);
+    }
+    return true;
+  }
+
+  if (sscanf(line, "PWM_HOLD %15s %d", selector, &pwm_value) == 2) {
+    int idx = -1;
+    bool all = false;
+    if (!parseWheelSelector(selector, idx, all)) return true;
+    if (all) {
+      for (int i = 0; i < WHEEL_COUNT; ++i) set_motor_pwm_hold(i, pwm_value);
+    } else {
+      set_motor_pwm_hold(idx, pwm_value);
     }
     return true;
   }
@@ -434,6 +500,34 @@ static void handleJetsonLine(const char *line) {
     JsonArray arr = doc["motor_sign"];
     for (int i = 0; i < WHEEL_COUNT; ++i) {
       setSignedConfig(i, MOTOR_SIGN, arr[i] | MOTOR_SIGN[i]);
+    }
+  }
+
+  if (doc.containsKey("pwm_start")) {
+    JsonArray arr = doc["pwm_start"];
+    for (int i = 0; i < WHEEL_COUNT; ++i) {
+      set_motor_pwm_start(i, arr[i] | get_motor_pwm_start(i));
+    }
+  }
+
+  if (doc.containsKey("pwm_hold")) {
+    JsonArray arr = doc["pwm_hold"];
+    for (int i = 0; i < WHEEL_COUNT; ++i) {
+      set_motor_pwm_hold(i, arr[i] | get_motor_pwm_hold(i));
+    }
+  }
+
+  if (doc.containsKey("motor_u_deadband")) {
+    JsonArray arr = doc["motor_u_deadband"];
+    for (int i = 0; i < WHEEL_COUNT; ++i) {
+      set_motor_u_deadband(i, arr[i] | get_motor_u_deadband(i));
+    }
+  }
+
+  if (doc.containsKey("active_u_floor")) {
+    JsonArray arr = doc["active_u_floor"];
+    for (int i = 0; i < WHEEL_COUNT; ++i) {
+      setActiveUFloor(i, arr[i] | ACTIVE_U_FLOOR[i]);
     }
   }
 
@@ -573,6 +667,18 @@ static void publishDebug() {
   JsonArray motor_sign_arr = dbg.createNestedArray("motor_sign");
   for (int i = 0; i < WHEEL_COUNT; ++i) motor_sign_arr.add(MOTOR_SIGN[i]);
 
+  JsonArray pwm_start_arr = dbg.createNestedArray("pwm_start");
+  for (int i = 0; i < WHEEL_COUNT; ++i) pwm_start_arr.add(get_motor_pwm_start(i));
+
+  JsonArray pwm_hold_arr = dbg.createNestedArray("pwm_hold");
+  for (int i = 0; i < WHEEL_COUNT; ++i) pwm_hold_arr.add(get_motor_pwm_hold(i));
+
+  JsonArray motor_deadband_arr = dbg.createNestedArray("motor_u_deadband");
+  for (int i = 0; i < WHEEL_COUNT; ++i) motor_deadband_arr.add(safeFloat(get_motor_u_deadband(i)));
+
+  JsonArray active_floor_arr = dbg.createNestedArray("active_u_floor");
+  for (int i = 0; i < WHEEL_COUNT; ++i) active_floor_arr.add(safeFloat(ACTIVE_U_FLOOR[i]));
+
   dbg["cmd_age_ms"] = wheel_test.active ? 0 : (now_ms - last_cmd_ms);
   dbg["enc_age_ms"] = now_ms - last_enc_ms;
   dbg["imu_ok"] = imu_is_ready() ? 1 : 0;
@@ -697,6 +803,7 @@ void loop() {
         } else {
           const float vmax = (V_MAX_MPS[i] > 1e-3f) ? V_MAX_MPS[i] : 1.0f;
           u_ff[i] = clampf(cmd_target / vmax, U_MIN, U_MAX);
+          const float measured_for_control = encoderFeedbackForControl(i, cmd_target);
 
           if (fabsf(cmd_target) < V_CMD_DEADBAND) {
             u_ff[i] = 0.0f;
@@ -704,7 +811,7 @@ void loop() {
             u_out[i] = 0.0f;
             pid[i].reset();
           } else if (use_closed_loop) {
-            u_pid[i] = pid[i].update(cmd_target, enc_vel_corr[i], dt);
+            u_pid[i] = pid[i].update(cmd_target, measured_for_control, dt);
             u_out[i] = clampf(u_ff[i] + u_pid[i], U_MIN, U_MAX);
           } else {
             u_pid[i] = 0.0f;
@@ -712,7 +819,7 @@ void loop() {
             pid[i].reset();
           }
 
-          u_out[i] = applyActiveDriveFloor(i, cmd_target, u_out[i]);
+          u_out[i] = applyActiveDriveFloor(i, cmd_target, measured_for_control, u_out[i]);
         }
 
         u_send[i] = (float)MOTOR_SIGN[i] * u_out[i];

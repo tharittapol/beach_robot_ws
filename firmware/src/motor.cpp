@@ -26,13 +26,12 @@ enum WheelIndex {
 static constexpr bool ENABLE_RR = true;
 
 static constexpr int PWM_MAX = 255;
-static constexpr float U_DEADBAND = 0.03f;
 
-// ตั้งค่าหลัง “เทสบนพื้นจริง”
-// RR needs more breakaway torque than the other wheels, so keep its minimum
-// output a little higher instead of pushing Kp harder.
-static int PWM_START[4] = { 40, 40, 40, 55 };  // ออกตัว
-static int PWM_HOLD [4] = { 25, 25, 25, 28 };  // หมุนต่อ
+// Rear wheels are very fast when lifted, so keep their floors low enough for
+// low-speed closed-loop control to command a small continuous duty.
+static int PWM_START[4] = { 15, 15, 2, 2 };  // ออกตัว
+static int PWM_HOLD [4] = { 10, 10, 2, 2 };  // หมุนต่อ
+static float U_DEADBAND[4] = { 0.015f, 0.015f, 0.004f, 0.004f };
 
 static constexpr uint32_t KICK_MS = 200;      // เวลา kick ช่วยให้หลุด static friction
 
@@ -55,10 +54,50 @@ static inline int clamp_pwm(int v) {
   return v;
 }
 
+static inline bool valid_motor_index(int wheel_index) {
+  return wheel_index >= 0 && wheel_index < 4;
+}
+
+bool set_motor_pwm_start(int wheel_index, int pwm) {
+  if (!valid_motor_index(wheel_index)) return false;
+  PWM_START[wheel_index] = clamp_pwm(pwm);
+  return true;
+}
+
+bool set_motor_pwm_hold(int wheel_index, int pwm) {
+  if (!valid_motor_index(wheel_index)) return false;
+  PWM_HOLD[wheel_index] = clamp_pwm(pwm);
+  return true;
+}
+
+bool set_motor_u_deadband(int wheel_index, float deadband) {
+  if (!valid_motor_index(wheel_index)) return false;
+  if (!isfinite(deadband)) return false;
+  if (deadband < 0.0f) deadband = 0.0f;
+  if (deadband > 1.0f) deadband = 1.0f;
+  U_DEADBAND[wheel_index] = deadband;
+  return true;
+}
+
+int get_motor_pwm_start(int wheel_index) {
+  if (!valid_motor_index(wheel_index)) return 0;
+  return PWM_START[wheel_index];
+}
+
+int get_motor_pwm_hold(int wheel_index) {
+  if (!valid_motor_index(wheel_index)) return 0;
+  return PWM_HOLD[wheel_index];
+}
+
+float get_motor_u_deadband(int wheel_index) {
+  if (!valid_motor_index(wheel_index)) return 0.0f;
+  return U_DEADBAND[wheel_index];
+}
+
 // u in [-1..+1] -> duty 0..255 with min hold/kick
 static int duty_from_u(int i, float u) {
   float a = fabsf(u);
-  if (a < U_DEADBAND) return 0;
+  if (a < U_DEADBAND[i]) return 0;
 
   int duty = (int)lroundf(a * PWM_MAX);
   duty = clamp_pwm(duty);
@@ -105,7 +144,7 @@ void set_motor_speeds(float u_fl, float u_fr, float u_rl, float u_rr) {
   // detect rising edge -> start kick
   const uint32_t now = millis();
   for (int i = 0; i < 4; i++) {
-    const bool nz = (fabsf(u[i]) >= U_DEADBAND);
+    const bool nz = (fabsf(u[i]) >= U_DEADBAND[i]);
     if (nz && !last_nonzero[i]) {
       kick_until_ms[i] = now + KICK_MS;   // เริ่ม kick
     }

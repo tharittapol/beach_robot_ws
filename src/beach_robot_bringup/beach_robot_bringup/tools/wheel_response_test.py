@@ -98,6 +98,7 @@ class WheelResponseTest(Node):
             "dbg_wheel_cmd",
             "dbg_enc_vel_raw",
             "dbg_enc_vel_corr",
+            "dbg_wheel_cnt",
             "dbg_u_ff",
             "dbg_u_pid",
             "dbg_motor_u",
@@ -151,6 +152,7 @@ class WheelResponseTest(Node):
         self._add_array(row, "dbg_wheel_cmd", debug.get("wheel_cmd"))
         self._add_array(row, "dbg_enc_vel_raw", debug.get("enc_vel_raw"))
         self._add_array(row, "dbg_enc_vel_corr", debug.get("enc_vel_corr"))
+        self._add_array(row, "dbg_wheel_cnt", debug.get("wheel_cnt"))
         self._add_array(row, "dbg_u_ff", debug.get("u_ff"))
         self._add_array(row, "dbg_u_pid", debug.get("u_pid"))
         self._add_array(row, "dbg_motor_u", debug.get("motor_u"))
@@ -263,16 +265,21 @@ def parse_args():
     parser.add_argument("--label", default="lifted", help="Label appended to output filenames.")
     parser.add_argument("--out-dir", default="~/beach_robot_logs/wheel_response", help="Directory for CSV logs.")
     parser.add_argument("--tests", default="forward,backward,spin_left,spin_right,curve_left,curve_right")
-    parser.add_argument("--forward-speed", type=float, default=0.25, help="m/s for forward/backward tests.")
-    parser.add_argument("--spin-rate", type=float, default=0.35, help="rad/s for spin-in-place tests.")
-    parser.add_argument("--curve-speed", type=float, default=0.20, help="m/s for curve tests.")
-    parser.add_argument("--curve-rate", type=float, default=0.25, help="rad/s for curve tests.")
+    parser.add_argument("--forward-speed", type=float, default=0.17, help="m/s for forward/backward tests.")
+    parser.add_argument("--spin-rate", type=float, default=0.20, help="rad/s for spin-in-place tests.")
+    parser.add_argument("--curve-speed", type=float, default=0.12, help="m/s for curve tests.")
+    parser.add_argument("--curve-rate", type=float, default=0.08, help="rad/s for curve tests.")
     parser.add_argument("--settle-sec", type=float, default=1.0)
     parser.add_argument("--step-sec", type=float, default=4.0)
     parser.add_argument("--stop-sec", type=float, default=1.5)
     parser.add_argument("--publish-rate-hz", type=float, default=20.0)
     parser.add_argument("--log-rate-hz", type=float, default=50.0)
-    parser.add_argument("--debug-rate-ms", type=int, default=100)
+    parser.add_argument(
+        "--debug-rate-ms",
+        type=int,
+        default=250,
+        help="ESP32 debug interval in ms. Keep modest to avoid serial congestion.",
+    )
     parser.add_argument("--no-esp32-debug", action="store_true")
     parser.add_argument("--cmd-vel-topic", default="/cmd_vel")
     parser.add_argument("--wheel-cmd-topic", default="/wheel_cmd")
