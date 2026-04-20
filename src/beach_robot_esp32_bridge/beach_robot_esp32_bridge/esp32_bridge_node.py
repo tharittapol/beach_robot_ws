@@ -5,7 +5,7 @@ import time
 import rclpy
 from rclpy.node import Node
 
-from std_msgs.msg import Float32MultiArray, Float32, Bool
+from std_msgs.msg import Float32MultiArray, Float32, Bool, String
 from sensor_msgs.msg import Imu, Range
 
 import serial
@@ -61,6 +61,16 @@ class ESP32Bridge(Node):
             'imu/data',
             10
         )
+        self.pub_esp32_debug = self.create_publisher(
+            String,
+            'esp32/debug',
+            10
+        )
+        self.pub_esp32_raw_json = self.create_publisher(
+            String,
+            'esp32/raw_json',
+            10
+        )
 
         # Subscribers
         self.sub_wheel_cmd = self.create_subscription(
@@ -79,6 +89,12 @@ class ESP32Bridge(Node):
             Bool,
             'vibration_enable',
             self.vibration_callback,
+            10
+        )
+        self.sub_json_cmd = self.create_subscription(
+            String,
+            'esp32/json_cmd',
+            self.json_cmd_callback,
             10
         )
 
@@ -128,13 +144,11 @@ class ESP32Bridge(Node):
     # ------------------------------------------------------------------
     # Callbacks to send commands to ESP32
     # ------------------------------------------------------------------
-    def wheel_cmd_callback(self, msg: Float32MultiArray):
-        """Send wheel_cmd to ESP32 as JSON: {"wheel_cmd":[v_fl,v_fr,v_rl,v_rr]}"""
+    def write_json_line(self, data: dict, label: str):
         if self.ser is None or not self.ser.is_open:
-            self.get_logger().warn('Serial not open, cannot send wheel command')
+            self.get_logger().warn(f'Serial not open, cannot send {label}')
             return
 
-        data = {'wheel_cmd': list(msg.data)}
         line = json.dumps(data) + '\n'
         encoded = line.encode('utf-8')
 
@@ -142,50 +156,38 @@ class ESP32Bridge(Node):
             try:
                 self.ser.write(encoded)
             except serial.SerialException as e:
-                self.get_logger().error(f'Serial write error (wheel_cmd): {e}')
+                self.get_logger().error(f'Serial write error ({label}): {e}')
                 self.close_serial()
                 self.open_serial_with_retry()
+
+    def wheel_cmd_callback(self, msg: Float32MultiArray):
+        """Send wheel_cmd to ESP32 as JSON: {"wheel_cmd":[v_fl,v_fr,v_rl,v_rr]}"""
+        self.write_json_line({'wheel_cmd': list(msg.data)}, 'wheel_cmd')
 
     def buzzer_callback(self, msg: Float32):
         """Send buzzer_duration to ESP32 as JSON: {"buzzer_duration": sec}"""
-        if self.ser is None or not self.ser.is_open:
-            self.get_logger().warn('Serial not open, cannot send buzzer command')
-            return
-
-        dur = float(msg.data)
-        data = {'buzzer_duration': dur}
-        line = json.dumps(data) + '\n'
-        encoded = line.encode('utf-8')
-
-        with self.serial_lock:
-            try:
-                self.ser.write(encoded)
-            except serial.SerialException as e:
-                self.get_logger().error(f'Serial write error (buzzer): {e}')
-                self.close_serial()
-                self.open_serial_with_retry()
+        self.write_json_line({'buzzer_duration': float(msg.data)}, 'buzzer')
 
     def vibration_callback(self, msg: Bool):
         """
         Send vibration_enable to ESP32 as JSON:
         {"vibration_enable": true/false}
         """
-        if self.ser is None or not self.ser.is_open:
-            self.get_logger().warn('Serial not open, cannot send vibration command')
+        self.write_json_line({'vibration_enable': bool(msg.data)}, 'vibration')
+
+    def json_cmd_callback(self, msg: String):
+        """Forward a validated JSON object to ESP32 for debug/tuning commands."""
+        try:
+            data = json.loads(msg.data)
+        except json.JSONDecodeError as e:
+            self.get_logger().warn(f'Invalid esp32/json_cmd JSON: {e}')
             return
 
-        data = {'vibration_enable': bool(msg.data)}
-        line = json.dumps(data) + '\n'
-        encoded = line.encode('utf-8')
+        if not isinstance(data, dict):
+            self.get_logger().warn('esp32/json_cmd must be a JSON object')
+            return
 
-        with self.serial_lock:
-            try:
-                self.ser.write(encoded)
-            except serial.SerialException as e:
-                self.get_logger().error(f'Serial write error (vibration): {e}')
-                self.close_serial()
-                self.open_serial_with_retry()
-
+        self.write_json_line(data, 'json_cmd')
 
     # ------------------------------------------------------------------
     # Read loop from ESP32
@@ -232,9 +234,15 @@ class ESP32Bridge(Node):
                 self.get_logger().warn(f'Invalid JSON from ESP32: {e}')
                 continue
 
+            self.publish_raw_json(text)
+
             # Info messages
             if 'info' in data:
                 self.get_logger().info(f"ESP32 info: {data['info']}")
+
+            # Low-level motor debug from esp32_main.
+            if 'debug' in data:
+                self.publish_esp32_debug(data['debug'])
 
             # Encoders
             if 'enc_vel' in data:
@@ -248,6 +256,20 @@ class ESP32Bridge(Node):
             # Format A: {"ultra":[left,middle,right]}
             if 'ultra' in data:
                 self.publish_ultrasonic_triplet(data['ultra'])
+
+    def publish_raw_json(self, text: str):
+        msg = String()
+        msg.data = text
+        self.pub_esp32_raw_json.publish(msg)
+
+    def publish_esp32_debug(self, debug_data):
+        msg = String()
+        try:
+            msg.data = json.dumps(debug_data, separators=(',', ':'))
+        except (TypeError, ValueError) as e:
+            self.get_logger().warn(f'Invalid ESP32 debug data: {e}')
+            return
+        self.pub_esp32_debug.publish(msg)
 
     def publish_enc_vel(self, enc_list):
         if not isinstance(enc_list, list):

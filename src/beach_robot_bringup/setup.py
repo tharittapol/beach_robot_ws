@@ -33,6 +33,8 @@ setup(
     entry_points={
         'console_scripts': [
             'preflight_check = beach_robot_bringup.tools.preflight_check:main',
+            'wheel_response_test = beach_robot_bringup.tools.wheel_response_test:main',
+            'wheel_response_analyze = beach_robot_bringup.tools.analyze_wheel_response:main',
         ],
     },
 )
