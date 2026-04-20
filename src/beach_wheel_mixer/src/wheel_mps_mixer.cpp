@@ -20,6 +20,10 @@ public:
     // Optional yaw tuning gains. Keep at 1.0 for geometry-first mixing.
     turn_gain_front_ = this->declare_parameter<double>("turn_gain_front", 1.0);
     turn_gain_rear_  = this->declare_parameter<double>("turn_gain_rear",  1.0);
+    in_place_linear_threshold_ = this->declare_parameter<double>("in_place_linear_threshold", 0.05);
+    in_place_angular_threshold_ = this->declare_parameter<double>("in_place_angular_threshold", 0.05);
+    turn_gain_front_in_place_ = this->declare_parameter<double>("turn_gain_front_in_place", 1.0);
+    turn_gain_rear_in_place_  = this->declare_parameter<double>("turn_gain_rear_in_place",  1.0);
 
     // Per-wheel scale for small calibration trims.
     front_left_scale_  = this->declare_parameter<double>("front_left_scale", 1.0);
@@ -74,8 +78,9 @@ public:
 
     RCLCPP_INFO(
       this->get_logger(),
-      "wheel_mps_mixer in=%s out=%s front_track=%.3f rear_track=%.3f max_v=%.2f max_w=%.2f",
-      input_topic_.c_str(), output_topic_.c_str(), front_track_width_, rear_track_width_, max_v_, max_w_);
+      "wheel_mps_mixer in=%s out=%s front_track=%.3f rear_track=%.3f max_v=%.2f max_w=%.2f in_place_lin<=%.2f in_place_ang>=%.2f",
+      input_topic_.c_str(), output_topic_.c_str(), front_track_width_, rear_track_width_, max_v_, max_w_,
+      in_place_linear_threshold_, in_place_angular_threshold_);
   }
 
 private:
@@ -118,8 +123,15 @@ private:
     const double v = clamp(msg->linear.x,  -max_v_, max_v_);
     const double w = clamp(msg->angular.z, -max_w_, max_w_);
 
-    const double wf = w * turn_gain_front_;
-    const double wr = w * turn_gain_rear_;
+    const bool in_place_turn =
+      std::abs(v) <= in_place_linear_threshold_ &&
+      std::abs(w) >= in_place_angular_threshold_;
+
+    const double front_turn_gain = in_place_turn ? turn_gain_front_in_place_ : turn_gain_front_;
+    const double rear_turn_gain  = in_place_turn ? turn_gain_rear_in_place_  : turn_gain_rear_;
+
+    const double wf = w * front_turn_gain;
+    const double wr = w * rear_turn_gain;
 
     std::array<double, 4> wheel_mps = {
       (v - wf * (front_track_width_ * 0.5)) * front_left_scale_,
@@ -178,6 +190,8 @@ private:
   // Params.
   double front_track_width_, rear_track_width_;
   double turn_gain_front_, turn_gain_rear_;
+  double in_place_linear_threshold_, in_place_angular_threshold_;
+  double turn_gain_front_in_place_, turn_gain_rear_in_place_;
   double front_left_scale_, front_right_scale_, rear_left_scale_, rear_right_scale_;
   double max_v_, max_w_;
   double max_wheel_fl_mps_, max_wheel_fr_mps_, max_wheel_rl_mps_, max_wheel_rr_mps_;

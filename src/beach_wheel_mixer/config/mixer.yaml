@@ -8,6 +8,10 @@ wheel_mps_mixer:
 
     turn_gain_front: 1.0
     turn_gain_rear: 1.0
+    in_place_linear_threshold: 0.05
+    in_place_angular_threshold: 0.05
+    turn_gain_front_in_place: 1.0
+    turn_gain_rear_in_place: 1.0
 
     front_left_scale: 1.0
     front_right_scale: 1.0

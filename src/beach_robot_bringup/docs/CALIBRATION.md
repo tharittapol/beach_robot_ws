@@ -16,6 +16,8 @@ Spin in place 360 degrees.
 Compare odom yaw vs real rotation.
 Adjust `front_track_width` and `rear_track_width` together until yaw error < 5 degrees per 360.
 For this robot, start with a narrower front track and a wider rear track.
+If the rear wheels chatter or hop during spin-in-place, reduce `turn_gain_rear_in_place`
+in `beach_wheel_mixer/config/mixer.yaml` before changing the geometry values.
 
 ## 4) IMU orientation
 Ensure IMU axes match ROS convention.

@@ -26,6 +26,8 @@ static bool USE_CLOSED_LOOP[WHEEL_COUNT] = { true, true, true, true };
 static constexpr float V_CMD_DEADBAND = 0.005f;
 static constexpr float U_MIN = -1.0f;
 static constexpr float U_MAX = 1.0f;
+static constexpr float LOW_SPEED_TARGET_MAX_MPS[WHEEL_COUNT] = { 0.0f, 0.0f, 0.60f, 0.60f };
+static constexpr float ACTIVE_U_FLOOR[WHEEL_COUNT] = { 0.0f, 0.0f, 0.05f, 0.06f };
 
 static float V_MAX_MPS[WHEEL_COUNT] = { 1.36f, 1.33f, 6.30f, 6.85f }; // wheels on air at battery 25.9 V, tune each wheel step, 2026-03-21
 
@@ -85,6 +87,23 @@ static inline float safeFloat(float x) {
 
 static inline bool validWheelIndex(int idx) {
   return idx >= 0 && idx < WHEEL_COUNT;
+}
+
+static float applyActiveDriveFloor(int idx, float cmd_target, float u_cmd) {
+  if (!validWheelIndex(idx)) return u_cmd;
+
+  const float target_mag = fabsf(cmd_target);
+  const float floor_u = ACTIVE_U_FLOOR[idx];
+  if (floor_u <= 0.0f) return u_cmd;
+  if (target_mag < V_CMD_DEADBAND) return u_cmd;
+  if (target_mag > LOW_SPEED_TARGET_MAX_MPS[idx]) return u_cmd;
+
+  // Keep low-speed rear commands from dropping in and out of the motor deadband.
+  if (fabsf(u_cmd) < floor_u || (u_cmd * cmd_target) < 0.0f) {
+    return copysignf(floor_u, cmd_target);
+  }
+
+  return u_cmd;
 }
 
 struct LineReader {
@@ -692,6 +711,8 @@ void loop() {
             u_out[i] = u_ff[i];
             pid[i].reset();
           }
+
+          u_out[i] = applyActiveDriveFloor(i, cmd_target, u_out[i]);
         }
 
         u_send[i] = (float)MOTOR_SIGN[i] * u_out[i];
