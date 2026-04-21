@@ -41,8 +41,10 @@ public:
     max_wheel_rl_mps_ = this->declare_parameter<double>("max_wheel_rl_mps", 6.30);
     max_wheel_rr_mps_ = this->declare_parameter<double>("max_wheel_rr_mps", 6.85);
 
-    // Ramp limit.
+    // Ramp limits. Decel is intentionally higher so releasing the joystick or
+    // deadman feels responsive while acceleration remains gentle.
     max_accel_mps2_ = this->declare_parameter<double>("max_accel_mps2", 1.0); // m/s^2 per wheel
+    max_decel_mps2_ = this->declare_parameter<double>("max_decel_mps2", 3.0); // m/s^2 per wheel
 
     // Watchdog.
     cmd_timeout_ms_ = this->declare_parameter<int>("cmd_timeout_ms", 300);
@@ -78,9 +80,9 @@ public:
 
     RCLCPP_INFO(
       this->get_logger(),
-      "wheel_mps_mixer in=%s out=%s front_track=%.3f rear_track=%.3f max_v=%.2f max_w=%.2f in_place_lin<=%.2f in_place_ang>=%.2f",
+      "wheel_mps_mixer in=%s out=%s front_track=%.3f rear_track=%.3f max_v=%.2f max_w=%.2f accel=%.2f decel=%.2f in_place_lin<=%.2f in_place_ang>=%.2f",
       input_topic_.c_str(), output_topic_.c_str(), front_track_width_, rear_track_width_, max_v_, max_w_,
-      in_place_linear_threshold_, in_place_angular_threshold_);
+      max_accel_mps2_, max_decel_mps2_, in_place_linear_threshold_, in_place_angular_threshold_);
   }
 
 private:
@@ -170,9 +172,12 @@ private:
       desired = {0.0, 0.0, 0.0, 0.0};
     }
 
-    const double dv_max = max_accel_mps2_ * dt;
     for (int i = 0; i < 4; ++i) {
       const double dv = desired[i] - out_mps_[i];
+      const bool sign_change = desired[i] * out_mps_[i] < 0.0;
+      const bool reducing_magnitude = std::abs(desired[i]) < std::abs(out_mps_[i]);
+      const double rate = (sign_change || reducing_magnitude) ? max_decel_mps2_ : max_accel_mps2_;
+      const double dv_max = rate * dt;
       const double step = clamp(dv, -dv_max, dv_max);
       out_mps_[i] += step;
     }
@@ -195,7 +200,7 @@ private:
   double front_left_scale_, front_right_scale_, rear_left_scale_, rear_right_scale_;
   double max_v_, max_w_;
   double max_wheel_fl_mps_, max_wheel_fr_mps_, max_wheel_rl_mps_, max_wheel_rr_mps_;
-  double max_accel_mps2_;
+  double max_accel_mps2_, max_decel_mps2_;
   int cmd_timeout_ms_;
   double publish_rate_hz_;
   int dir_fl_, dir_fr_, dir_rl_, dir_rr_;

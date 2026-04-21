@@ -33,6 +33,8 @@ class Teleop4WDSkid(Node):
         self.declare_parameter('joy_timeout_sec', 0.5)
         self.declare_parameter('linear_slew_rate', 0.35)
         self.declare_parameter('angular_slew_rate', 0.60)
+        self.declare_parameter('linear_decel_rate', 3.0)
+        self.declare_parameter('angular_decel_rate', 4.0)
 
         # Deadman (LB)
         self.declare_parameter('enable_button', 4)
@@ -67,6 +69,8 @@ class Teleop4WDSkid(Node):
         self.joy_timeout_sec = float(self.get_parameter('joy_timeout_sec').value)
         self.linear_slew_rate = float(self.get_parameter('linear_slew_rate').value)
         self.angular_slew_rate = float(self.get_parameter('angular_slew_rate').value)
+        self.linear_decel_rate = float(self.get_parameter('linear_decel_rate').value)
+        self.angular_decel_rate = float(self.get_parameter('angular_decel_rate').value)
 
         self.enable_button = int(self.get_parameter('enable_button').value)
 
@@ -114,10 +118,9 @@ class Teleop4WDSkid(Node):
         self.publish_timer = self.create_timer(period, self.publish_timer_cb)
 
         self.get_logger().info(
-            'Teleop4WDSkid started: max_linear=%.3f max_angular=%.3f publish_rate=%.1f Hz',
-            self.max_linear,
-            self.max_angular,
-            self.publish_rate_hz,
+            f'Teleop4WDSkid started: max_linear={self.max_linear:.3f} '
+            f'max_angular={self.max_angular:.3f} '
+            f'publish_rate={self.publish_rate_hz:.1f} Hz'
         )
 
     def _now(self) -> float:
@@ -143,6 +146,11 @@ class Teleop4WDSkid(Node):
     def _slew(self, current: float, target: float, rate: float, dt: float) -> float:
         step = max(0.0, rate) * max(0.0, dt)
         return current + self._clamp(target - current, -step, step)
+
+    def _slew_rate_for(self, current: float, target: float, accel_rate: float, decel_rate: float) -> float:
+        sign_change = current * target < 0.0
+        reducing_magnitude = abs(target) < abs(current)
+        return decel_rate if sign_change or reducing_magnitude else accel_rate
 
     def _set_target_zero(self):
         self.target_v = 0.0
@@ -314,13 +322,23 @@ class Teleop4WDSkid(Node):
         self.current_v = self._slew(
             self.current_v,
             self.target_v,
-            self.linear_slew_rate,
+            self._slew_rate_for(
+                self.current_v,
+                self.target_v,
+                self.linear_slew_rate,
+                self.linear_decel_rate,
+            ),
             dt,
         )
         self.current_w = self._slew(
             self.current_w,
             self.target_w,
-            self.angular_slew_rate,
+            self._slew_rate_for(
+                self.current_w,
+                self.target_w,
+                self.angular_slew_rate,
+                self.angular_decel_rate,
+            ),
             dt,
         )
 

@@ -33,6 +33,7 @@ wheel_mps_mixer:
     max_wheel_rr_mps: 8.60
 
     max_accel_mps2: 0.6
+    max_decel_mps2: 4.0
 
     dir_fl: 1
     dir_fr: 1

@@ -65,6 +65,8 @@ def generate_launch_description():
                 'joy_timeout_sec': 0.5,
                 'linear_slew_rate': 0.35,
                 'angular_slew_rate': 0.60,
+                'linear_decel_rate': 3.0,
+                'angular_decel_rate': 4.0,
 
                 'cmd_vel_out': '/cmd_vel',
             }]
