@@ -21,6 +21,8 @@ class WheelResponseTest(Node):
         self.started_wall = time.time()
         self.started_mono = time.monotonic()
 
+        self.latest_cmd_vel = None
+        self.latest_cmd_vel_stamp = None
         self.latest_wheel_cmd = None
         self.latest_wheel_cmd_stamp = None
         self.latest_enc_vel = None
@@ -29,7 +31,14 @@ class WheelResponseTest(Node):
         self.latest_debug_stamp = None
 
         self.pub_cmd = self.create_publisher(Twist, args.cmd_vel_topic, 10)
+        self.pub_wheel_cmd = self.create_publisher(Float32MultiArray, args.wheel_cmd_topic, 10)
         self.pub_json = self.create_publisher(String, args.esp32_json_cmd_topic, 10)
+        self.create_subscription(
+            Twist,
+            args.cmd_vel_topic,
+            self._cmd_vel_cb,
+            50,
+        )
         self.create_subscription(
             Float32MultiArray,
             args.wheel_cmd_topic,
@@ -60,6 +69,10 @@ class WheelResponseTest(Node):
         self.writer = csv.DictWriter(self.csv_file, fieldnames=self._csv_fields())
         self.writer.writeheader()
 
+    def _cmd_vel_cb(self, msg):
+        self.latest_cmd_vel = (float(msg.linear.x), float(msg.angular.z))
+        self.latest_cmd_vel_stamp = self.get_clock().now()
+
     def _wheel_cmd_cb(self, msg):
         self.latest_wheel_cmd = [float(x) for x in msg.data[:4]]
         self.latest_wheel_cmd_stamp = self.get_clock().now()
@@ -88,6 +101,7 @@ class WheelResponseTest(Node):
             "phase",
             "cmd_v",
             "cmd_w",
+            "cmd_vel_age_sec",
             "wheel_cmd_age_sec",
             "enc_vel_age_sec",
             "debug_age_sec",
@@ -140,6 +154,7 @@ class WheelResponseTest(Node):
             "phase": phase,
             "cmd_v": f"{cmd_v:.6f}",
             "cmd_w": f"{cmd_w:.6f}",
+            "cmd_vel_age_sec": self._age_sec(self.latest_cmd_vel_stamp, now),
             "wheel_cmd_age_sec": self._age_sec(self.latest_wheel_cmd_stamp, now),
             "enc_vel_age_sec": self._age_sec(self.latest_enc_vel_stamp, now),
             "debug_age_sec": self._age_sec(self.latest_debug_stamp, now),
@@ -170,12 +185,74 @@ class WheelResponseTest(Node):
         msg.angular.z = float(w)
         self.pub_cmd.publish(msg)
 
+    def _publish_wheel_cmd(self, wheel_cmd):
+        msg = Float32MultiArray()
+        msg.data = [float(x) for x in wheel_cmd]
+        self.pub_wheel_cmd.publish(msg)
+
+    def _direct_wheel_cmd(self, v, w):
+        if abs(v) > 1e-6:
+            raise ValueError("--direct-wheel-cmd currently supports spin-in-place tests only.")
+
+        if w > 0.0:
+            return (
+                -self.args.direct_spin_front_mps,
+                self.args.direct_spin_front_mps,
+                -self.args.direct_spin_rear_mps,
+                self.args.direct_spin_rear_mps,
+            )
+        if w < 0.0:
+            return (
+                self.args.direct_spin_front_mps,
+                -self.args.direct_spin_front_mps,
+                self.args.direct_spin_rear_mps,
+                -self.args.direct_spin_rear_mps,
+            )
+        return (0.0, 0.0, 0.0, 0.0)
+
     def _send_esp32_json(self, data, repeat=3):
         msg = String()
         msg.data = json.dumps(data, separators=(",", ":"))
         for _ in range(max(1, repeat)):
             self.pub_json.publish(msg)
             rclpy.spin_once(self, timeout_sec=0.05)
+
+    def _latest_cmd_vel_or_zero(self):
+        if self.latest_cmd_vel is None or self.latest_cmd_vel_stamp is None:
+            return 0.0, 0.0
+
+        now = self.get_clock().now()
+        age_sec = (now - self.latest_cmd_vel_stamp).nanoseconds / 1e9
+        if age_sec > self.args.manual_cmd_timeout_sec:
+            return 0.0, 0.0
+        return self.latest_cmd_vel
+
+    def _classify_manual_cmd(self, v, w):
+        active_v = abs(v) >= self.args.manual_active_v
+        active_w = abs(w) >= self.args.manual_active_w
+        if not active_v and not active_w:
+            return "idle", "zero"
+        if not active_v:
+            return ("spin_left" if w > 0.0 else "spin_right"), "command"
+        if not active_w:
+            return ("forward" if v > 0.0 else "backward"), "command"
+        if v < 0.0:
+            return ("backward_curve_left" if w > 0.0 else "backward_curve_right"), "command"
+        return ("curve_left" if w > 0.0 else "curve_right"), "command"
+
+    def _run_manual_record(self, duration_sec):
+        end_time = time.monotonic() + max(0.0, duration_sec)
+        next_log = 0.0
+        log_period = 1.0 / max(1.0, self.args.log_rate_hz)
+
+        while rclpy.ok() and time.monotonic() < end_time:
+            rclpy.spin_once(self, timeout_sec=0.002)
+            now_mono = time.monotonic()
+            if now_mono >= next_log:
+                v, w = self._latest_cmd_vel_or_zero()
+                test_name, phase = self._classify_manual_cmd(v, w)
+                self._sample(test_name, phase, v, w)
+                next_log = now_mono + log_period
 
     def _run_phase(self, test_name, phase, v, w, duration_sec):
         end_time = time.monotonic() + max(0.0, duration_sec)
@@ -187,7 +264,10 @@ class WheelResponseTest(Node):
         while rclpy.ok() and time.monotonic() < end_time:
             now_mono = time.monotonic()
             if now_mono >= next_pub:
-                self._publish_cmd(v, w)
+                if self.args.direct_wheel_cmd:
+                    self._publish_wheel_cmd(self._direct_wheel_cmd(v, w))
+                else:
+                    self._publish_cmd(v, w)
                 next_pub = now_mono + pub_period
             if now_mono >= next_log:
                 self._sample(test_name, phase, v, w)
@@ -197,7 +277,10 @@ class WheelResponseTest(Node):
     def _publish_zero_burst(self, duration_sec=0.5):
         end_time = time.monotonic() + duration_sec
         while rclpy.ok() and time.monotonic() < end_time:
-            self._publish_cmd(0.0, 0.0)
+            if self.args.direct_wheel_cmd:
+                self._publish_wheel_cmd((0.0, 0.0, 0.0, 0.0))
+            else:
+                self._publish_cmd(0.0, 0.0)
             rclpy.spin_once(self, timeout_sec=0.02)
 
     def run(self, tests):
@@ -216,25 +299,39 @@ class WheelResponseTest(Node):
             "settle_sec": self.args.settle_sec,
             "step_sec": self.args.step_sec,
             "stop_sec": self.args.stop_sec,
+            "manual_record": self.args.manual_record,
+            "record_sec": self.args.record_sec,
+            "manual_active_v": self.args.manual_active_v,
+            "manual_active_w": self.args.manual_active_w,
             "tests": tests,
         }
         self.meta_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
-        if not self.args.no_esp32_debug:
+        if self.args.no_esp32_debug:
+            self._send_esp32_json({"dbg_enable": False}, repeat=5)
+        else:
             self._send_esp32_json({"dbg_enable": True, "dbg_rate_ms": self.args.debug_rate_ms}, repeat=5)
 
         try:
             self.get_logger().info(f"Writing wheel response CSV: {self.csv_path}")
-            self._run_phase("startup", "zero", 0.0, 0.0, self.args.settle_sec)
-            for test_name, v, w in tests:
-                self.get_logger().info(f"Running {test_name}: v={v:.3f} m/s w={w:.3f} rad/s")
-                self._run_phase(test_name, "settle_zero", 0.0, 0.0, self.args.settle_sec)
-                self._run_phase(test_name, "command", v, w, self.args.step_sec)
-                self._run_phase(test_name, "stop_zero", 0.0, 0.0, self.args.stop_sec)
+            if self.args.manual_record:
+                self.get_logger().info(
+                    f"Manual record mode: drive with joy for {self.args.record_sec:.1f} seconds"
+                )
+                self._run_manual_record(self.args.record_sec)
+            else:
+                self._run_phase("startup", "zero", 0.0, 0.0, self.args.settle_sec)
+                for test_name, v, w in tests:
+                    if self.args.direct_wheel_cmd and abs(v) > 1e-6:
+                        raise ValueError("--direct-wheel-cmd only supports spin_left/spin_right tests.")
+                    self.get_logger().info(f"Running {test_name}: v={v:.3f} m/s w={w:.3f} rad/s")
+                    self._run_phase(test_name, "settle_zero", 0.0, 0.0, self.args.settle_sec)
+                    self._run_phase(test_name, "command", v, w, self.args.step_sec)
+                    self._run_phase(test_name, "stop_zero", 0.0, 0.0, self.args.stop_sec)
         finally:
-            self._publish_zero_burst()
-            if not self.args.no_esp32_debug:
-                self._send_esp32_json({"dbg_enable": False}, repeat=3)
+            if not self.args.manual_record:
+                self._publish_zero_burst()
+            self._send_esp32_json({"dbg_enable": False}, repeat=3)
             self.csv_file.close()
             self.get_logger().info(f"Saved CSV: {self.csv_path}")
             self.get_logger().info(f"Saved metadata: {self.meta_path}")
@@ -274,6 +371,52 @@ def parse_args():
     parser.add_argument("--stop-sec", type=float, default=1.5)
     parser.add_argument("--publish-rate-hz", type=float, default=20.0)
     parser.add_argument("--log-rate-hz", type=float, default=50.0)
+    parser.add_argument(
+        "--manual-record",
+        action="store_true",
+        help="Only record live joy/manual driving; do not publish /cmd_vel or /wheel_cmd.",
+    )
+    parser.add_argument(
+        "--record-sec",
+        type=float,
+        default=60.0,
+        help="Duration for --manual-record.",
+    )
+    parser.add_argument(
+        "--manual-active-v",
+        type=float,
+        default=0.02,
+        help="Minimum |cmd_vel.linear.x| treated as active manual motion.",
+    )
+    parser.add_argument(
+        "--manual-active-w",
+        type=float,
+        default=0.03,
+        help="Minimum |cmd_vel.angular.z| treated as active manual motion.",
+    )
+    parser.add_argument(
+        "--manual-cmd-timeout-sec",
+        type=float,
+        default=1.0,
+        help="Treat /cmd_vel as zero if no command arrives within this time during --manual-record.",
+    )
+    parser.add_argument(
+        "--direct-wheel-cmd",
+        action="store_true",
+        help="Publish /wheel_cmd directly for spin tests, bypassing /cmd_vel and wheel_mps_mixer.",
+    )
+    parser.add_argument(
+        "--direct-spin-front-mps",
+        type=float,
+        default=0.0734,
+        help="Front wheel m/s magnitude used with --direct-wheel-cmd spin tests.",
+    )
+    parser.add_argument(
+        "--direct-spin-rear-mps",
+        type=float,
+        default=0.1179,
+        help="Rear wheel m/s magnitude used with --direct-wheel-cmd spin tests.",
+    )
     parser.add_argument(
         "--debug-rate-ms",
         type=int,

@@ -13,8 +13,8 @@ class Teleop4WDSkid(Node):
         super().__init__('teleop_4wd')
 
         # ---------------- Parameters ----------------
-        self.declare_parameter('max_linear', 0.5)
-        self.declare_parameter('max_angular', 1.0)
+        self.declare_parameter('max_linear', 0.17)
+        self.declare_parameter('max_angular', 0.20)
 
         # Joystick axes (F710 XInput usually: left_x=0, left_y=1)
         self.declare_parameter('axis_linear', 1)     # left stick Y
@@ -27,6 +27,12 @@ class Teleop4WDSkid(Node):
         self.declare_parameter('invert_angular', False)
         self.declare_parameter('deadzone_linear', 0.08)
         self.declare_parameter('deadzone_angular', 0.08)
+        self.declare_parameter('expo_linear', 1.0)
+        self.declare_parameter('expo_angular', 1.0)
+        self.declare_parameter('publish_rate_hz', 20.0)
+        self.declare_parameter('joy_timeout_sec', 0.5)
+        self.declare_parameter('linear_slew_rate', 0.35)
+        self.declare_parameter('angular_slew_rate', 0.60)
 
         # Deadman (LB)
         self.declare_parameter('enable_button', 4)
@@ -55,6 +61,12 @@ class Teleop4WDSkid(Node):
         self.invert_angular = bool(self.get_parameter('invert_angular').value)
         self.deadzone_linear = float(self.get_parameter('deadzone_linear').value)
         self.deadzone_angular = float(self.get_parameter('deadzone_angular').value)
+        self.expo_linear = float(self.get_parameter('expo_linear').value)
+        self.expo_angular = float(self.get_parameter('expo_angular').value)
+        self.publish_rate_hz = float(self.get_parameter('publish_rate_hz').value)
+        self.joy_timeout_sec = float(self.get_parameter('joy_timeout_sec').value)
+        self.linear_slew_rate = float(self.get_parameter('linear_slew_rate').value)
+        self.angular_slew_rate = float(self.get_parameter('angular_slew_rate').value)
 
         self.enable_button = int(self.get_parameter('enable_button').value)
 
@@ -73,6 +85,7 @@ class Teleop4WDSkid(Node):
         self.manual_mode = True
         self.vibration_on = False
         self.estop_active = False
+        self.deadman_active = False
 
         self.prev_a = False
         self.prev_b = False
@@ -82,6 +95,12 @@ class Teleop4WDSkid(Node):
         self.a_press_start = None
         self.a_hold_toggled = False
         self.y_press_start = None
+        self.last_joy_time = None
+        self.last_publish_time = self._now()
+        self.target_v = 0.0
+        self.target_w = 0.0
+        self.current_v = 0.0
+        self.current_w = 0.0
 
         # ---------------- ROS IO ----------------
         self.sub_joy = self.create_subscription(Joy, 'joy', self.joy_callback, 10)
@@ -91,8 +110,15 @@ class Teleop4WDSkid(Node):
         self.pub_estop = self.create_publisher(Bool, 'e_stop', 10)
 
         self.auto_start_client = self.create_client(Trigger, self.auto_start_service_name)
+        period = 1.0 / max(1.0, self.publish_rate_hz)
+        self.publish_timer = self.create_timer(period, self.publish_timer_cb)
 
-        self.get_logger().info('Teleop4WDSkid started')
+        self.get_logger().info(
+            'Teleop4WDSkid started: max_linear=%.3f max_angular=%.3f publish_rate=%.1f Hz',
+            self.max_linear,
+            self.max_angular,
+            self.publish_rate_hz,
+        )
 
     def _now(self) -> float:
         return self.get_clock().now().nanoseconds / 1e9
@@ -108,10 +134,24 @@ class Teleop4WDSkid(Node):
     def _clamp(self, x: float, lo: float, hi: float) -> float:
         return max(lo, min(hi, x))
 
-    def _publish_zero(self):
+    def _shape_axis(self, x: float, expo: float) -> float:
+        expo = max(1.0, expo)
+        if x == 0.0 or expo == 1.0:
+            return x
+        return math.copysign(abs(x) ** expo, x)
+
+    def _slew(self, current: float, target: float, rate: float, dt: float) -> float:
+        step = max(0.0, rate) * max(0.0, dt)
+        return current + self._clamp(target - current, -step, step)
+
+    def _set_target_zero(self):
+        self.target_v = 0.0
+        self.target_w = 0.0
+
+    def _publish_cmd(self, v: float, w: float):
         cmd = Twist()
-        cmd.linear.x = 0.0
-        cmd.angular.z = 0.0
+        cmd.linear.x = float(v)
+        cmd.angular.z = float(w)
         self.pub_vel_cmd.publish(cmd)
 
     def start_auto_clean(self):
@@ -140,6 +180,7 @@ class Teleop4WDSkid(Node):
 
     def joy_callback(self, msg: Joy):
         now = self._now()
+        self.last_joy_time = now
         axes = msg.axes
         buttons = msg.buttons
 
@@ -164,9 +205,12 @@ class Teleop4WDSkid(Node):
         raw_ang = self._apply_deadzone(raw_ang, self.deadzone_angular)
         raw_lin = self._clamp(raw_lin, -1.0, 1.0)
         raw_ang = self._clamp(raw_ang, -1.0, 1.0)
+        raw_lin = self._shape_axis(raw_lin, self.expo_linear)
+        raw_ang = self._shape_axis(raw_ang, self.expo_angular)
 
         # -------- Read buttons --------
         enable_pressed = get_button(self.enable_button)
+        self.deadman_active = enable_pressed
         a_pressed = get_button(self.button_a)
         b_pressed = get_button(self.button_b)
         x_pressed = get_button(self.button_x)
@@ -220,22 +264,16 @@ class Teleop4WDSkid(Node):
             self.start_auto_clean()
 
         # ==============================================================
-        # Publish cmd_vel
+        # Update target cmd_vel.
         # - manual mode + deadman + not estop => send motion
         # ==============================================================
         if self.estop_active:
-            self._publish_zero()
+            self._set_target_zero()
         elif self.manual_mode and enable_pressed:
-            v = raw_lin * self.scale_linear * self.max_linear
-            w = raw_ang * self.scale_angular * self.max_angular
-
-            cmd = Twist()
-            cmd.linear.x = float(v)
-            cmd.angular.z = float(w)
-            self.pub_vel_cmd.publish(cmd)
+            self.target_v = raw_lin * self.scale_linear * self.max_linear
+            self.target_w = raw_ang * self.scale_angular * self.max_angular
         elif self.manual_mode and not enable_pressed:
-            # deadman released + manual mode => stop
-            self._publish_zero()
+            self._set_target_zero()
 
         # publish mode + estop (optional: keep as-is)
         mode_msg = String()
@@ -250,6 +288,48 @@ class Teleop4WDSkid(Node):
         self.prev_b = b_pressed
         self.prev_x = x_pressed
         self.prev_y = y_pressed
+
+    def publish_timer_cb(self):
+        now = self._now()
+        dt = max(0.0, now - self.last_publish_time)
+        self.last_publish_time = now
+
+        joy_stale = (
+            self.last_joy_time is None or
+            (now - self.last_joy_time) > self.joy_timeout_sec
+        )
+        force_zero = (
+            joy_stale or
+            self.estop_active or
+            not self.manual_mode or
+            not self.deadman_active
+        )
+        if force_zero:
+            self._set_target_zero()
+            self.current_v = 0.0
+            self.current_w = 0.0
+            self._publish_cmd(0.0, 0.0)
+            return
+
+        self.current_v = self._slew(
+            self.current_v,
+            self.target_v,
+            self.linear_slew_rate,
+            dt,
+        )
+        self.current_w = self._slew(
+            self.current_w,
+            self.target_w,
+            self.angular_slew_rate,
+            dt,
+        )
+
+        if abs(self.current_v) < 1e-4:
+            self.current_v = 0.0
+        if abs(self.current_w) < 1e-4:
+            self.current_w = 0.0
+
+        self._publish_cmd(self.current_v, self.current_w)
 
 
 def main(args=None):

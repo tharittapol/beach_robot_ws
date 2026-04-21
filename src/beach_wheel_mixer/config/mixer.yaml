@@ -21,15 +21,18 @@ wheel_mps_mixer:
     publish_rate_hz: 50.0
     cmd_timeout_ms: 300
 
-    max_v: 1.0
-    max_w: 0.8
+    # Conservative floor-test limits. Nav2 can override these later with a
+    # separate config once the drivetrain is validated on sand/grass.
+    max_v: 0.35
+    max_w: 0.40
 
-    max_wheel_fl_mps: 1.36
-    max_wheel_fr_mps: 1.33
-    max_wheel_rl_mps: 6.30
-    max_wheel_rr_mps: 6.85
+    # Match current ESP32 VMAX feed-forward tuning.
+    max_wheel_fl_mps: 1.25
+    max_wheel_fr_mps: 1.10
+    max_wheel_rl_mps: 9.70
+    max_wheel_rr_mps: 8.60
 
-    max_accel_mps2: 1.0
+    max_accel_mps2: 0.6
 
     dir_fl: 1
     dir_fr: 1

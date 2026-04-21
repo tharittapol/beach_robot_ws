@@ -48,6 +48,49 @@ CSV and metadata files are written to:
 ~/beach_robot_logs/wheel_response/
 ```
 
+## Joy Floor Test
+
+For floor testing with the joystick, run the bridge, mixer, teleop, and recorder
+as separate terminals. The recorder only listens in `--manual-record` mode; it
+does not publish `/cmd_vel`, so the joystick remains the only motion source.
+
+```bash
+ros2 launch beach_robot_esp32_bridge esp32_bridge.launch.py
+ros2 launch beach_wheel_mixer wheel_mps_mixer.launch.py
+ros2 launch beach_robot_teleop teleop.launch.py
+```
+
+Record a short manual drive:
+
+```bash
+ros2 run beach_robot_bringup wheel_response_test \
+  --manual-record \
+  --label joy_floor_001 \
+  --record-sec 90 \
+  --log-rate-hz 5 \
+  --no-esp32-debug
+```
+
+Suggested joystick sequence:
+
+- forward at low stick for 3-5 seconds
+- backward at low stick for 3-5 seconds
+- curve left and curve right while moving forward
+- spin left and spin right briefly
+- stop between motions so the CSV has clean sections
+
+Analyze with ROS encoder data when debug is disabled:
+
+```bash
+ros2 run beach_robot_bringup wheel_response_analyze \
+  ~/beach_robot_logs/wheel_response/wheel_response_YYYYMMDD_HHMMSS_joy_floor_001.csv \
+  --enc-source ros \
+  --max-enc-mps 2.0
+```
+
+If we need firmware internals for a specific issue, re-run with debug enabled at
+a slow rate such as `--debug-rate-ms 1000` instead of `--no-esp32-debug`.
+
 ## Useful Options
 
 ```bash
