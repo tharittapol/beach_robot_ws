@@ -6,8 +6,11 @@ wheel_mps_mixer:
     front_track_width: 0.734
     rear_track_width: 1.179
 
-    turn_gain_front: 1.0
-    turn_gain_rear: 1.0
+    # Floor testing showed the inside wheels keep rolling and the outside wheels
+    # load down during joystick curves, so use extra yaw authority for moving
+    # curves. In-place spin remains separately tuned below.
+    turn_gain_front: 1.35
+    turn_gain_rear: 1.55
     in_place_linear_threshold: 0.05
     in_place_angular_threshold: 0.05
     turn_gain_front_in_place: 1.0

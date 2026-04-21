@@ -41,4 +41,4 @@ ekf_global:
                   true,  true,  false]
     imu1_differential: false
     imu1_relative: false
-    imu1_remove_gravitational_acceleration: true
+    imu1_remove_gravitational_acceleration: false

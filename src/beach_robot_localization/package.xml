@@ -9,6 +9,8 @@
 
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>robot_localization</exec_depend>
+  <exec_depend>tf_transformations</exec_depend>
 
   <depend>rclpy</depend>
   <depend>std_msgs</depend>

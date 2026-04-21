@@ -8,7 +8,7 @@ def generate_launch_description():
     pkg = get_package_share_directory('beach_robot_localization')
     ekf_local = os.path.join(pkg, 'config', 'ekf_local.yaml')
     navsat = os.path.join(pkg, 'config', 'navsat.yaml')
-    ekf_global = os.path.join(pkg, 'config', 'ekf_global_step2.yaml')
+    ekf_global = os.path.join(pkg, 'config', 'ekf_global_yaw_from_GNSS.yaml')
 
     return LaunchDescription([
         Node(
