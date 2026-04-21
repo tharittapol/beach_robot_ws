@@ -8,6 +8,7 @@ WHEEL_NAMES = ("fl", "fr", "rl", "rr")
 DEFAULT_MAX_REASONABLE_CMD_MPS = 3.0
 DEFAULT_MAX_REASONABLE_ENC_MPS = 5.0
 DEFAULT_MOTOR_ZERO_EPS = 0.003
+DEFAULT_MIN_CMD_MPS = 0.01
 CMD_MISMATCH_MPS = 0.02
 WHEEL_CIRC_M = {
     "fl": 2.0 * math.pi * 0.115,
@@ -102,6 +103,59 @@ def debug_elapsed(row_elapsed, debug_age):
     return row_elapsed - debug_age
 
 
+def split_segments(rows, max_gap_sec):
+    if max_gap_sec <= 0.0:
+        return [rows]
+
+    segments = []
+    current = []
+    last_elapsed = None
+    for row in rows:
+        elapsed = to_float(row.get("elapsed_sec"))
+        if (
+            current
+            and elapsed is not None
+            and last_elapsed is not None
+            and (elapsed - last_elapsed) > max_gap_sec
+        ):
+            segments.append(current)
+            current = []
+        current.append(row)
+        if elapsed is not None:
+            last_elapsed = elapsed
+
+    if current:
+        segments.append(current)
+    return segments
+
+
+def trim_segment_start(rows, settle_sec):
+    if settle_sec <= 0.0 or not rows:
+        return rows
+
+    start_elapsed = None
+    for row in rows:
+        start_elapsed = to_float(row.get("elapsed_sec"))
+        if start_elapsed is not None:
+            break
+    if start_elapsed is None:
+        return rows
+
+    return [
+        row
+        for row in rows
+        if (to_float(row.get("elapsed_sec")) is None)
+        or (to_float(row.get("elapsed_sec")) - start_elapsed) >= settle_sec
+    ]
+
+
+def segment_duration(samples, value_index):
+    vals = [sample[value_index] for sample in samples if sample[value_index] is not None]
+    if not vals:
+        return None
+    return max(vals) - min(vals)
+
+
 def analyze(
     csv_path,
     phase,
@@ -109,8 +163,12 @@ def analyze(
     enc_source,
     max_cmd_mps,
     max_enc_mps,
+    min_cmd_mps,
     motor_zero_eps,
     drop_cmd_mismatch,
+    settle_sec,
+    min_segment_sec,
+    max_segment_gap_sec,
 ):
     groups = defaultdict(list)
     with open(csv_path, newline="") as f:
@@ -125,6 +183,24 @@ def analyze(
 
     summaries = []
     for test, rows in groups.items():
+        row_segments = [
+            trimmed
+            for segment in split_segments(rows, max_segment_gap_sec)
+            for trimmed in (trim_segment_start(segment, settle_sec),)
+            if trimmed
+        ]
+        if min_segment_sec > 0.0:
+            row_segments = [
+                segment
+                for segment in row_segments
+                if (segment_duration([
+                    (to_float(row.get("elapsed_sec")),)
+                    for row in segment
+                ], 0) or 0.0) >= min_segment_sec
+            ]
+        if not row_segments:
+            continue
+
         for wheel in WHEEL_NAMES:
             ros_cmd_key = f"ros_wheel_cmd_{wheel}"
             dbg_cmd_key = f"dbg_wheel_cmd_{wheel}"
@@ -133,72 +209,85 @@ def analyze(
             motor_key = f"dbg_motor_u_{wheel}"
             cnt_key = f"dbg_wheel_cnt_{wheel}"
 
-            elapsed_vals = [to_float(r.get("elapsed_sec")) for r in rows]
-            debug_age_vals = [to_float(r.get("debug_age_sec")) for r in rows]
-            debug_elapsed_vals = [
-                debug_elapsed(elapsed, debug_age)
-                for elapsed, debug_age in zip(elapsed_vals, debug_age_vals)
-            ]
-            ros_cmd_vals = [to_float(r.get(ros_cmd_key)) for r in rows]
-            dbg_cmd_vals = [to_float(r.get(dbg_cmd_key)) for r in rows]
-            ros_enc_vals = [to_float(r.get(ros_enc_key)) for r in rows]
-            dbg_enc_vals = [to_float(r.get(dbg_enc_key)) for r in rows]
-            motor_vals = [to_float(r.get(motor_key)) for r in rows]
-            cnt_vals = [to_float(r.get(cnt_key)) for r in rows]
-
-            enc_vals, selected_enc_source = select_encoder_values(
-                ros_enc_vals,
-                dbg_enc_vals,
+            all_ros_enc_vals = []
+            all_dbg_enc_vals = []
+            for segment in row_segments:
+                all_ros_enc_vals.extend(to_float(r.get(ros_enc_key)) for r in segment)
+                all_dbg_enc_vals.extend(to_float(r.get(dbg_enc_key)) for r in segment)
+            _, selected_enc_source = select_encoder_values(
+                all_ros_enc_vals,
+                all_dbg_enc_vals,
                 enc_source,
             )
 
-            samples = [
-                (
-                    elapsed,
-                    dbg_elapsed,
-                    cmd,
-                    dbg_cmd,
-                    enc,
-                    motor,
-                    cnt,
-                    command_mismatch(cmd, dbg_cmd, max_cmd_mps) if cmd is not None else False,
+            samples = []
+            for segment_idx, segment in enumerate(row_segments):
+                elapsed_vals = [to_float(r.get("elapsed_sec")) for r in segment]
+                debug_age_vals = [to_float(r.get("debug_age_sec")) for r in segment]
+                debug_elapsed_vals = [
+                    debug_elapsed(elapsed, debug_age)
+                    for elapsed, debug_age in zip(elapsed_vals, debug_age_vals)
+                ]
+                ros_cmd_vals = [to_float(r.get(ros_cmd_key)) for r in segment]
+                dbg_cmd_vals = [to_float(r.get(dbg_cmd_key)) for r in segment]
+                ros_enc_vals = [to_float(r.get(ros_enc_key)) for r in segment]
+                dbg_enc_vals = [to_float(r.get(dbg_enc_key)) for r in segment]
+                motor_vals = [to_float(r.get(motor_key)) for r in segment]
+                cnt_vals = [to_float(r.get(cnt_key)) for r in segment]
+                enc_vals, _ = select_encoder_values(
+                    ros_enc_vals,
+                    dbg_enc_vals,
+                    enc_source,
                 )
-                for elapsed, dbg_elapsed, ros_cmd, dbg_cmd, enc, motor, cnt in zip(
-                    elapsed_vals,
-                    debug_elapsed_vals,
-                    ros_cmd_vals,
-                    dbg_cmd_vals,
-                    enc_vals,
-                    motor_vals,
-                    cnt_vals,
+
+                samples.extend(
+                    (
+                        segment_idx,
+                        elapsed,
+                        dbg_elapsed,
+                        cmd,
+                        dbg_cmd,
+                        enc,
+                        motor,
+                        cnt,
+                        command_mismatch(cmd, dbg_cmd, max_cmd_mps) if cmd is not None else False,
+                    )
+                    for elapsed, dbg_elapsed, ros_cmd, dbg_cmd, enc, motor, cnt in zip(
+                        elapsed_vals,
+                        debug_elapsed_vals,
+                        ros_cmd_vals,
+                        dbg_cmd_vals,
+                        enc_vals,
+                        motor_vals,
+                        cnt_vals,
+                    )
+                    for cmd in (select_command(ros_cmd, dbg_cmd, cmd_source, max_cmd_mps),)
+                    if enc is not None
                 )
-                for cmd in (select_command(ros_cmd, dbg_cmd, cmd_source, max_cmd_mps),)
-                if enc is not None
-            ]
             raw_active = [
-                (elapsed, dbg_elapsed, cmd, dbg_cmd, enc, motor, cnt, cmd_bad)
-                for elapsed, dbg_elapsed, cmd, dbg_cmd, enc, motor, cnt, cmd_bad in samples
-                if cmd is not None and abs(cmd) >= 0.01
+                (segment_idx, elapsed, dbg_elapsed, cmd, dbg_cmd, enc, motor, cnt, cmd_bad)
+                for segment_idx, elapsed, dbg_elapsed, cmd, dbg_cmd, enc, motor, cnt, cmd_bad in samples
+                if cmd is not None and abs(cmd) >= min_cmd_mps
             ]
             active = [
                 sample
                 for sample in raw_active
-                if abs(sample[4]) <= max_enc_mps and (not drop_cmd_mismatch or not sample[7])
+                if abs(sample[5]) <= max_enc_mps and (not drop_cmd_mismatch or not sample[8])
             ]
             if not active:
                 continue
 
-            abs_errors = [abs(cmd - enc) for _, _, cmd, _, enc, _, _, _ in active]
-            signed_errors = [cmd - enc for _, _, cmd, _, enc, _, _, _ in active]
-            abs_cmd = [abs(cmd) for _, _, cmd, _, _, _, _, _ in active]
-            abs_enc = [abs(enc) for _, _, _, _, enc, _, _, _ in active]
+            abs_errors = [abs(cmd - enc) for _, _, _, cmd, _, enc, _, _, _ in active]
+            signed_errors = [cmd - enc for _, _, _, cmd, _, enc, _, _, _ in active]
+            abs_cmd = [abs(cmd) for _, _, _, cmd, _, _, _, _, _ in active]
+            abs_enc = [abs(enc) for _, _, _, _, _, enc, _, _, _ in active]
 
-            motor_samples = [motor for _, _, _, _, _, motor, _, _ in active if motor is not None]
+            motor_samples = [motor for _, _, _, _, _, _, motor, _, _ in active if motor is not None]
             zero_motor = sum(1 for motor in motor_samples if abs(motor) < motor_zero_eps)
-            sign_bad = sum(1 for _, _, cmd, _, enc, _, _, _ in active if sign_of(cmd) * sign_of(enc) < 0)
+            sign_bad = sum(1 for _, _, _, cmd, _, enc, _, _, _ in active if sign_of(cmd) * sign_of(enc) < 0)
             dbg_cmd_samples = [
                 (cmd, dbg_cmd, cmd_bad)
-                for _, _, cmd, dbg_cmd, _, _, _, cmd_bad in raw_active
+                for _, _, _, cmd, dbg_cmd, _, _, _, cmd_bad in raw_active
                 if dbg_cmd is not None
             ]
             cmd_bad = sum(1 for _, _, is_bad in dbg_cmd_samples if is_bad)
@@ -207,7 +296,7 @@ def analyze(
             count_jumps = 0
             last_sign = 0
             last_cnt = None
-            for _, _, _, _, _, motor, cnt, _ in active:
+            for _, _, _, _, _, _, motor, cnt, _ in active:
                 if motor is None:
                     continue
                 s = sign_of(motor, eps=motor_zero_eps)
@@ -226,36 +315,47 @@ def analyze(
             if mean_abs_cmd and mean_abs_cmd > 1e-6 and mean_abs_enc is not None:
                 ratio = mean_abs_enc / mean_abs_cmd
 
-            elapsed_active = [elapsed for elapsed, *_ in active if elapsed is not None]
-            duration_sec = None
-            if elapsed_active:
-                duration_sec = max(elapsed_active) - min(elapsed_active)
+            cmd_rev_sum = 0.0
+            cmd_rev_present = False
+            count_cmd_rev_sum = 0.0
+            count_cmd_rev_present = False
+            cnt_rev_sum = 0.0
+            cnt_rev_present = False
+            for segment_idx in sorted({sample[0] for sample in active}):
+                segment_samples = [sample for sample in active if sample[0] == segment_idx]
+                segment_abs_cmd = [abs(sample[3]) for sample in segment_samples]
+                segment_mean_abs_cmd = mean(segment_abs_cmd)
+                duration_sec = segment_duration(segment_samples, 1)
+                if (
+                    segment_mean_abs_cmd is not None
+                    and duration_sec is not None
+                    and WHEEL_CIRC_M[wheel] > 0.0
+                ):
+                    cmd_rev_sum += segment_mean_abs_cmd * duration_sec / WHEEL_CIRC_M[wheel]
+                    cmd_rev_present = True
 
-            debug_elapsed_active = [
-                dbg_elapsed
-                for _, dbg_elapsed, *rest in active
-                if dbg_elapsed is not None and rest[-2] is not None
-            ]
-            count_duration_sec = None
-            if debug_elapsed_active:
-                count_duration_sec = max(debug_elapsed_active) - min(debug_elapsed_active)
+                cnt_values = [sample[7] for sample in segment_samples if sample[7] is not None]
+                if len(cnt_values) >= 2 and COUNTS_PER_OUTPUT_REV[wheel] > 0.0:
+                    segment_cnt_rev = abs(cnt_values[-1] - cnt_values[0]) / COUNTS_PER_OUTPUT_REV[wheel]
+                    cnt_rev_sum += segment_cnt_rev
+                    cnt_rev_present = True
 
-            cmd_rev = None
-            if mean_abs_cmd is not None and duration_sec is not None and WHEEL_CIRC_M[wheel] > 0.0:
-                cmd_rev = mean_abs_cmd * duration_sec / WHEEL_CIRC_M[wheel]
+                    count_duration_sec = segment_duration(segment_samples, 2)
+                    if count_duration_sec is None:
+                        count_duration_sec = duration_sec
+                    if (
+                        segment_mean_abs_cmd is not None
+                        and count_duration_sec is not None
+                        and WHEEL_CIRC_M[wheel] > 0.0
+                    ):
+                        count_cmd_rev_sum += (
+                            segment_mean_abs_cmd * count_duration_sec / WHEEL_CIRC_M[wheel]
+                        )
+                        count_cmd_rev_present = True
 
-            count_cmd_rev = None
-            if (
-                mean_abs_cmd is not None
-                and count_duration_sec is not None
-                and WHEEL_CIRC_M[wheel] > 0.0
-            ):
-                count_cmd_rev = mean_abs_cmd * count_duration_sec / WHEEL_CIRC_M[wheel]
-
-            cnt_values = [cnt for *_, cnt, _ in active if cnt is not None]
-            cnt_rev = None
-            if len(cnt_values) >= 2 and COUNTS_PER_OUTPUT_REV[wheel] > 0.0:
-                cnt_rev = abs(cnt_values[-1] - cnt_values[0]) / COUNTS_PER_OUTPUT_REV[wheel]
+            cmd_rev = cmd_rev_sum if cmd_rev_present else None
+            count_cmd_rev = count_cmd_rev_sum if count_cmd_rev_present else None
+            cnt_rev = cnt_rev_sum if cnt_rev_present else None
 
             cnt_ratio = None
             if count_cmd_rev is not None and count_cmd_rev > 1e-6 and cnt_rev is not None:
@@ -369,6 +469,12 @@ def parse_args():
         help="Reject encoder velocity samples above this absolute speed as corrupt.",
     )
     parser.add_argument(
+        "--min-cmd-mps",
+        type=float,
+        default=DEFAULT_MIN_CMD_MPS,
+        help="Only analyze wheel samples whose selected command magnitude is at least this value.",
+    )
+    parser.add_argument(
         "--motor-zero-eps",
         type=float,
         default=DEFAULT_MOTOR_ZERO_EPS,
@@ -378,6 +484,24 @@ def parse_args():
         "--drop-cmd-mismatch",
         action="store_true",
         help="Drop rows where debug wheel_cmd differs from the selected ROS command.",
+    )
+    parser.add_argument(
+        "--settle-sec",
+        type=float,
+        default=0.0,
+        help="Drop this many seconds from the start of each contiguous command segment.",
+    )
+    parser.add_argument(
+        "--min-segment-sec",
+        type=float,
+        default=0.0,
+        help="Ignore contiguous command segments shorter than this duration after settling.",
+    )
+    parser.add_argument(
+        "--max-segment-gap-sec",
+        type=float,
+        default=0.75,
+        help="Split repeated manual commands when samples for the same label are separated by more than this gap.",
     )
     return parser.parse_args()
 
@@ -391,8 +515,12 @@ def main():
         args.enc_source,
         args.max_cmd_mps,
         args.max_enc_mps,
+        args.min_cmd_mps,
         args.motor_zero_eps,
         args.drop_cmd_mismatch,
+        args.settle_sec,
+        args.min_segment_sec,
+        args.max_segment_gap_sec,
     )
     print_summary(summaries)
 

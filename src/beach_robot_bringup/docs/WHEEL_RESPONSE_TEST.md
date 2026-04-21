@@ -85,11 +85,15 @@ Analyze with ROS encoder data when debug is disabled:
 ros2 run beach_robot_bringup wheel_response_analyze \
   ~/beach_robot_logs/wheel_response/wheel_response_YYYYMMDD_HHMMSS_joy_floor_001.csv \
   --enc-source ros \
-  --max-enc-mps 2.0
+  --max-enc-mps 2.0 \
+  --settle-sec 0.8 \
+  --min-segment-sec 1.2
 ```
 
 If we need firmware internals for a specific issue, re-run with debug enabled at
 a slow rate such as `--debug-rate-ms 1000` instead of `--no-esp32-debug`.
+When analyzing a debug-enabled log, add `--drop-cmd-mismatch` so stale debug
+samples do not pull the motion ratios around.
 
 ## Useful Options
 

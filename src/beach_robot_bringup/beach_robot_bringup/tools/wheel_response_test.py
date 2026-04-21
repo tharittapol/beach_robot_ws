@@ -122,7 +122,13 @@ class WheelResponseTest(Node):
             "dbg_use_closed_loop",
         ):
             fields.extend(f"{prefix}_{wheel}" for wheel in WHEEL_NAMES)
-        fields.extend(("dbg_cmd_age_ms", "dbg_enc_age_ms"))
+        fields.extend((
+            "dbg_cmd_age_ms",
+            "dbg_enc_age_ms",
+            "dbg_in_place_turn",
+            "dbg_moving_turn",
+            "dbg_spin_start_boost",
+        ))
         return fields
 
     def _age_sec(self, stamp, now):
@@ -160,6 +166,9 @@ class WheelResponseTest(Node):
             "debug_age_sec": self._age_sec(self.latest_debug_stamp, now),
             "dbg_cmd_age_ms": debug.get("cmd_age_ms", ""),
             "dbg_enc_age_ms": debug.get("enc_age_ms", ""),
+            "dbg_in_place_turn": debug.get("in_place_turn", ""),
+            "dbg_moving_turn": debug.get("moving_turn", ""),
+            "dbg_spin_start_boost": debug.get("spin_start_boost", ""),
         }
 
         self._add_array(row, "ros_wheel_cmd", self.latest_wheel_cmd)

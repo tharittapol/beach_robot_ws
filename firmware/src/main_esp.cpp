@@ -33,9 +33,13 @@ static constexpr float ACTIVE_FLOOR_DISABLE_ABOVE_TARGET_RATIO = 0.75f;
 static float SPIN_U_FLOOR[WHEEL_COUNT] = { 0.22f, 0.22f, 0.32f, 0.32f };
 static float SPIN_HOLD_U_FLOOR_POS[WHEEL_COUNT] = { 0.28f, 0.28f, 0.16f, 0.11f };
 static float SPIN_HOLD_U_FLOOR_NEG[WHEEL_COUNT] = { 0.20f, 0.25f, 0.08f, 0.11f };
+static float TURN_U_FLOOR_POS[WHEEL_COUNT] = { 0.16f, 0.16f, 0.20f, 0.20f };
+static float TURN_U_FLOOR_NEG[WHEEL_COUNT] = { 0.16f, 0.16f, 0.20f, 0.20f };
 static constexpr uint32_t SPIN_START_BOOST_MS = 350;
 static constexpr float SPIN_FLOOR_DISABLE_ABOVE_TARGET_RATIO = 1.25f;
 static constexpr float IN_PLACE_LINEAR_SUM_MAX_MPS = 0.03f;
+static constexpr float MOVING_TURN_DIFF_MIN_MPS = 0.06f;
+static constexpr float TURN_FLOOR_DISABLE_ABOVE_TARGET_RATIO = 1.25f;
 static constexpr float CONTROL_ENCODER_MAX_MPS[WHEEL_COUNT] = { 2.0f, 2.0f, 2.0f, 2.0f };
 static constexpr float CONTROL_ENCODER_OVERSPEED_GAIN = 4.0f;
 static constexpr float CONTROL_ENCODER_OVERSPEED_MARGIN_MPS = 0.35f;
@@ -125,14 +129,54 @@ static bool isInPlaceTurnCommand() {
          fabsf(linear_sum) <= IN_PLACE_LINEAR_SUM_MAX_MPS;
 }
 
+static bool isMovingTurnCommand() {
+  if (wheel_test.active || isInPlaceTurnCommand()) return false;
+
+  const float left_cmd = 0.5f * (v_cmd[0] + v_cmd[2]);
+  const float right_cmd = 0.5f * (v_cmd[1] + v_cmd[3]);
+  const float mean_cmd_mag =
+    0.25f * (fabsf(v_cmd[0]) + fabsf(v_cmd[1]) + fabsf(v_cmd[2]) + fabsf(v_cmd[3]));
+
+  if (mean_cmd_mag < V_CMD_DEADBAND) return false;
+  return fabsf(right_cmd - left_cmd) >= MOVING_TURN_DIFF_MIN_MPS;
+}
+
 static float spinHoldFloorForCommand(int idx, float cmd_target) {
   if (!validWheelIndex(idx)) return 0.0f;
   return (cmd_target >= 0.0f) ? SPIN_HOLD_U_FLOOR_POS[idx] : SPIN_HOLD_U_FLOOR_NEG[idx];
 }
 
+static float turnFloorForCommand(int idx, float cmd_target) {
+  if (!validWheelIndex(idx)) return 0.0f;
+  return (cmd_target >= 0.0f) ? TURN_U_FLOOR_POS[idx] : TURN_U_FLOOR_NEG[idx];
+}
+
+static bool shouldApplyMovingTurnFloor(int idx) {
+  if (!validWheelIndex(idx)) return false;
+  if (!isMovingTurnCommand()) return false;
+
+  const float left_cmd = 0.5f * (v_cmd[0] + v_cmd[2]);
+  const float right_cmd = 0.5f * (v_cmd[1] + v_cmd[3]);
+  const float mean_cmd = 0.25f * (v_cmd[0] + v_cmd[1] + v_cmd[2] + v_cmd[3]);
+  const bool left_side = (idx == 0 || idx == 2);
+
+  // Assist the higher-demand/outside side. Do not boost the slow inside side,
+  // otherwise a curve command turns into nearly-straight drive.
+  const bool left_is_outer = fabsf(left_cmd) > fabsf(right_cmd);
+  if (left_side == left_is_outer) return true;
+
+  // If the mixer explicitly asks an inside wheel to reverse/brake against the
+  // main travel direction, give that small corrective command enough authority.
+  return signFromCommand(v_cmd[idx]) != 0 &&
+         signFromCommand(mean_cmd) != 0 &&
+         signFromCommand(v_cmd[idx]) != signFromCommand(mean_cmd);
+}
+
 static float applyDriveFloor(
     int idx,
     bool in_place_turn,
+    bool moving_turn,
+    bool moving_turn_floor,
     bool spin_start_boost,
     float cmd_target,
     float measured,
@@ -147,11 +191,15 @@ static float applyDriveFloor(
       spin_start_boost ? SPIN_U_FLOOR[idx] : spinHoldFloorForCommand(idx, cmd_target);
     if (spin_floor > floor_u) floor_u = spin_floor;
     disable_ratio = SPIN_FLOOR_DISABLE_ABOVE_TARGET_RATIO;
+  } else if (moving_turn && moving_turn_floor) {
+    const float turn_floor = turnFloorForCommand(idx, cmd_target);
+    if (turn_floor > floor_u) floor_u = turn_floor;
+    disable_ratio = TURN_FLOOR_DISABLE_ABOVE_TARGET_RATIO;
   }
 
   if (floor_u <= 0.0f) return u_cmd;
   if (target_mag < V_CMD_DEADBAND) return u_cmd;
-  if (!in_place_turn && target_mag > LOW_SPEED_TARGET_MAX_MPS[idx]) return u_cmd;
+  if (!in_place_turn && !moving_turn && target_mag > LOW_SPEED_TARGET_MAX_MPS[idx]) return u_cmd;
 
   // Keep the high spin breakaway floor active only briefly. After the wheels
   // have started moving, allow PID to reduce power when a wheel is overspeeding.
@@ -268,6 +316,26 @@ static void setSpinHoldUFloorNeg(int idx, float floor_u) {
   if (!validWheelIndex(idx)) return;
   if (!isfinite(floor_u)) return;
   SPIN_HOLD_U_FLOOR_NEG[idx] = clampf(floor_u, 0.0f, 1.0f);
+}
+
+static void setTurnUFloor(int idx, float floor_u) {
+  if (!validWheelIndex(idx)) return;
+  if (!isfinite(floor_u)) return;
+  const float clamped = clampf(floor_u, 0.0f, 1.0f);
+  TURN_U_FLOOR_POS[idx] = clamped;
+  TURN_U_FLOOR_NEG[idx] = clamped;
+}
+
+static void setTurnUFloorPos(int idx, float floor_u) {
+  if (!validWheelIndex(idx)) return;
+  if (!isfinite(floor_u)) return;
+  TURN_U_FLOOR_POS[idx] = clampf(floor_u, 0.0f, 1.0f);
+}
+
+static void setTurnUFloorNeg(int idx, float floor_u) {
+  if (!validWheelIndex(idx)) return;
+  if (!isfinite(floor_u)) return;
+  TURN_U_FLOOR_NEG[idx] = clampf(floor_u, 0.0f, 1.0f);
 }
 
 static void setSignedConfig(int idx, int *dst, int sign_value) {
@@ -638,6 +706,27 @@ static void handleJetsonLine(const char *line) {
     }
   }
 
+  if (doc.containsKey("turn_u_floor")) {
+    JsonArray arr = doc["turn_u_floor"];
+    for (int i = 0; i < WHEEL_COUNT; ++i) {
+      setTurnUFloor(i, arr[i] | turnFloorForCommand(i, 1.0f));
+    }
+  }
+
+  if (doc.containsKey("turn_u_floor_pos")) {
+    JsonArray arr = doc["turn_u_floor_pos"];
+    for (int i = 0; i < WHEEL_COUNT; ++i) {
+      setTurnUFloorPos(i, arr[i] | TURN_U_FLOOR_POS[i]);
+    }
+  }
+
+  if (doc.containsKey("turn_u_floor_neg")) {
+    JsonArray arr = doc["turn_u_floor_neg"];
+    for (int i = 0; i < WHEEL_COUNT; ++i) {
+      setTurnUFloorNeg(i, arr[i] | TURN_U_FLOOR_NEG[i]);
+    }
+  }
+
   if (doc.containsKey("wheel_test")) {
     JsonObject wt = doc["wheel_test"];
     const int wheel = wt["wheel"] | 0;
@@ -729,7 +818,7 @@ static void publishDebug() {
   const uint32_t now_ms = millis();
   const ImuData imu_vals = get_imu_data();
 
-  StaticJsonDocument<2048> doc;
+  StaticJsonDocument<3072> doc;
   JsonObject dbg = doc.createNestedObject("debug");
 
   JsonArray cmd_arr = dbg.createNestedArray("wheel_cmd");
@@ -798,9 +887,19 @@ static void publishDebug() {
   JsonArray spin_hold_floor_neg_arr = dbg.createNestedArray("spin_hold_u_floor_neg");
   for (int i = 0; i < WHEEL_COUNT; ++i) spin_hold_floor_neg_arr.add(safeFloat(SPIN_HOLD_U_FLOOR_NEG[i]));
 
+  JsonArray turn_floor_arr = dbg.createNestedArray("turn_u_floor");
+  for (int i = 0; i < WHEEL_COUNT; ++i) turn_floor_arr.add(safeFloat(TURN_U_FLOOR_POS[i]));
+
+  JsonArray turn_floor_pos_arr = dbg.createNestedArray("turn_u_floor_pos");
+  for (int i = 0; i < WHEEL_COUNT; ++i) turn_floor_pos_arr.add(safeFloat(TURN_U_FLOOR_POS[i]));
+
+  JsonArray turn_floor_neg_arr = dbg.createNestedArray("turn_u_floor_neg");
+  for (int i = 0; i < WHEEL_COUNT; ++i) turn_floor_neg_arr.add(safeFloat(TURN_U_FLOOR_NEG[i]));
+
   dbg["cmd_age_ms"] = wheel_test.active ? 0 : (now_ms - last_cmd_ms);
   dbg["enc_age_ms"] = now_ms - last_enc_ms;
   dbg["in_place_turn"] = isInPlaceTurnCommand() ? 1 : 0;
+  dbg["moving_turn"] = isMovingTurnCommand() ? 1 : 0;
   dbg["spin_start_ms"] = in_place_turn_started_ms;
   dbg["spin_start_boost"] = (isInPlaceTurnCommand() &&
                             in_place_turn_started_ms != 0 &&
@@ -890,6 +989,7 @@ void loop() {
       stopAll();
     } else {
       const bool in_place_turn = isInPlaceTurnCommand();
+      const bool moving_turn = isMovingTurnCommand();
       if (in_place_turn && !last_in_place_turn) {
         in_place_turn_started_ms = now_ms;
       } else if (!in_place_turn) {
@@ -958,6 +1058,8 @@ void loop() {
           u_out[i] = applyDriveFloor(
             i,
             in_place_turn,
+            moving_turn,
+            shouldApplyMovingTurnFloor(i),
             spin_start_boost,
             cmd_target,
             measured_for_control,
