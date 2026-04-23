@@ -14,7 +14,7 @@ class Teleop4WDSkid(Node):
 
         # ---------------- Parameters ----------------
         self.declare_parameter('max_linear', 0.17)
-        self.declare_parameter('max_angular', 0.20)
+        self.declare_parameter('max_angular', 0.24)
 
         # Joystick axes (F710 XInput usually: left_x=0, left_y=1)
         self.declare_parameter('axis_linear', 1)     # left stick Y
@@ -32,7 +32,7 @@ class Teleop4WDSkid(Node):
         self.declare_parameter('publish_rate_hz', 20.0)
         self.declare_parameter('joy_timeout_sec', 0.5)
         self.declare_parameter('linear_slew_rate', 0.35)
-        self.declare_parameter('angular_slew_rate', 0.60)
+        self.declare_parameter('angular_slew_rate', 0.90)
         self.declare_parameter('linear_decel_rate', 3.0)
         self.declare_parameter('angular_decel_rate', 4.0)
 

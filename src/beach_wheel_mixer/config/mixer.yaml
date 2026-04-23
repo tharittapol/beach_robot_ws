@@ -6,11 +6,11 @@ wheel_mps_mixer:
     front_track_width: 0.734
     rear_track_width: 1.179
 
-    # Floor testing showed the inside wheels keep rolling and the outside wheels
-    # load down during joystick curves, so use extra yaw authority for moving
-    # curves. In-place spin remains separately tuned below.
-    turn_gain_front: 1.35
-    turn_gain_rear: 1.55
+    # Floor testing showed the inside wheels keep rolling and the outside front
+    # wheel loads down during joystick curves, so use extra yaw authority for
+    # moving curves. In-place spin remains separately tuned below.
+    turn_gain_front: 1.65
+    turn_gain_rear: 1.90
     in_place_linear_threshold: 0.05
     in_place_angular_threshold: 0.05
     turn_gain_front_in_place: 1.0
@@ -27,7 +27,7 @@ wheel_mps_mixer:
     # Conservative floor-test limits. Nav2 can override these later with a
     # separate config once the drivetrain is validated on sand/grass.
     max_v: 0.35
-    max_w: 0.40
+    max_w: 0.45
 
     # Match current ESP32 VMAX feed-forward tuning.
     max_wheel_fl_mps: 1.25
