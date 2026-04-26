@@ -1,15 +1,29 @@
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
+    use_static_tf = LaunchConfiguration("use_static_tf")
+    target_frame = LaunchConfiguration("target_frame")
+
     # ZED wrapper launch file path
     zed_launch = (
         get_package_share_directory("zed_wrapper")
         + "/launch/zed_camera.launch.py"
+    )
+    static_tf_launch = (
+        get_package_share_directory("beach_robot_localization")
+        + "/launch/static_sensors_tf.launch.py"
+    )
+
+    static_tf_node = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(static_tf_launch),
+        condition=IfCondition(use_static_tf),
     )
 
     zed_node = IncludeLaunchDescription(
@@ -43,7 +57,7 @@ def generate_launch_description():
             "output_cloud_topic": "/zed/filtered_cloud",
 
             # Transform cloud into this frame before filtering
-            "target_frame": "base_link",
+            "target_frame": target_frame,
 
             # Range gate (XY distance in target_frame)
             "min_range": 0.25,
@@ -62,6 +76,17 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument(
+            "use_static_tf",
+            default_value="true",
+            description="Publish base_link -> sensor static TFs when running this launch standalone.",
+        ),
+        DeclareLaunchArgument(
+            "target_frame",
+            default_value="base_link",
+            description="Frame to transform the filtered cloud into.",
+        ),
+        static_tf_node,
         zed_node,
         cloud_filter_node,
     ])

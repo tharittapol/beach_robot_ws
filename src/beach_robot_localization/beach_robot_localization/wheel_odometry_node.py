@@ -1,14 +1,12 @@
-import math
-
 import rclpy
 from rclpy.node import Node
 
 from std_msgs.msg import Float32MultiArray
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Quaternion
-# from tf_transformations import quaternion_from_euler
 
 import math
+
 
 def quaternion_from_euler(roll, pitch, yaw):
     cy = math.cos(yaw * 0.5)
@@ -46,6 +44,12 @@ class WheelOdometryNode(Node):
 
         self.declare_parameter('front_track_width', 0.75)
         self.declare_parameter('rear_track_width', 1.17)
+        self.declare_parameter('wheel_scale_fl', 1.0)
+        self.declare_parameter('wheel_scale_fr', 1.0)
+        self.declare_parameter('wheel_scale_rl', 1.0)
+        self.declare_parameter('wheel_scale_rr', 1.0)
+        self.declare_parameter('linear_scale', 1.0)
+        self.declare_parameter('angular_scale', 1.0)
         self.declare_parameter('base_frame_id', 'base_link')
         self.declare_parameter('odom_frame_id', 'odom')
         self.declare_parameter('publish_rate', 50.0)
@@ -55,6 +59,14 @@ class WheelOdometryNode(Node):
         self.odom_topic = self.get_parameter('odom_topic').value
         self.front_track_width = float(self.get_parameter('front_track_width').value)
         self.rear_track_width = float(self.get_parameter('rear_track_width').value)
+        self.wheel_scales = (
+            float(self.get_parameter('wheel_scale_fl').value),
+            float(self.get_parameter('wheel_scale_fr').value),
+            float(self.get_parameter('wheel_scale_rl').value),
+            float(self.get_parameter('wheel_scale_rr').value),
+        )
+        self.linear_scale = float(self.get_parameter('linear_scale').value)
+        self.angular_scale = float(self.get_parameter('angular_scale').value)
         self.base_frame_id = self.get_parameter('base_frame_id').value
         self.odom_frame_id = self.get_parameter('odom_frame_id').value
         self.publish_rate = float(self.get_parameter('publish_rate').value)
@@ -91,7 +103,10 @@ class WheelOdometryNode(Node):
             f'sub={self.enc_vel_topic} '
             f'pub={self.odom_topic} '
             f'front_track_width={self.front_track_width:.3f} '
-            f'rear_track_width={self.rear_track_width:.3f}'
+            f'rear_track_width={self.rear_track_width:.3f} '
+            f'wheel_scales={self.wheel_scales} '
+            f'linear_scale={self.linear_scale:.3f} '
+            f'angular_scale={self.angular_scale:.3f}'
         )
 
     def enc_cb(self, msg: Float32MultiArray):
@@ -99,10 +114,10 @@ class WheelOdometryNode(Node):
             self.get_logger().warn('enc_vel must contain 4 elements [FL, FR, RL, RR]')
             return
 
-        self.v_fl = float(msg.data[0])
-        self.v_fr = float(msg.data[1])
-        self.v_rl = float(msg.data[2])
-        self.v_rr = float(msg.data[3])
+        self.v_fl = float(msg.data[0]) * self.wheel_scales[0]
+        self.v_fr = float(msg.data[1]) * self.wheel_scales[1]
+        self.v_rl = float(msg.data[2]) * self.wheel_scales[2]
+        self.v_rr = float(msg.data[3]) * self.wheel_scales[3]
 
         self.last_enc_time = self.get_clock().now()
 
@@ -120,7 +135,7 @@ class WheelOdometryNode(Node):
                 (self.rear_track_width * rear_delta)
             ) / denom
 
-        return vx, wz
+        return vx * self.linear_scale, wz * self.angular_scale
 
     def update(self):
         now = self.get_clock().now()

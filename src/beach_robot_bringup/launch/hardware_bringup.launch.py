@@ -93,6 +93,9 @@ def generate_launch_description():
     ld.add_action(include_launch(
         'zed_nav2_cloud_filter',
         'launch/zedm_nav2_filtered.launch.py',
+        launch_args={
+            'use_static_tf': 'false',
+        },
         condition=IfCondition(use_zed)
     ))
 
