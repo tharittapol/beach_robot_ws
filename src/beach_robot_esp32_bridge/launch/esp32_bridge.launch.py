@@ -21,6 +21,16 @@ def generate_launch_description():
             default_value="0.05",
             description="Serial read timeout (seconds)"
         ),
+        DeclareLaunchArgument(
+            "enc_vel_max_abs_mps",
+            default_value="3.0",
+            description="Drop encoder velocity samples with any wheel above this absolute speed. <=0 disables."
+        ),
+        DeclareLaunchArgument(
+            "enc_vel_max_step_mps",
+            default_value="1.0",
+            description="Drop encoder velocity samples with any wheel jump above this speed. <=0 disables."
+        ),
 
         Node(
             package="beach_robot_esp32_bridge",
@@ -31,6 +41,8 @@ def generate_launch_description():
                 "port": LaunchConfiguration("port"),
                 "baudrate": LaunchConfiguration("baudrate"),
                 "timeout": LaunchConfiguration("timeout"),
+                "enc_vel_max_abs_mps": LaunchConfiguration("enc_vel_max_abs_mps"),
+                "enc_vel_max_step_mps": LaunchConfiguration("enc_vel_max_step_mps"),
             }],
             respawn=True,
             respawn_delay=2.0,

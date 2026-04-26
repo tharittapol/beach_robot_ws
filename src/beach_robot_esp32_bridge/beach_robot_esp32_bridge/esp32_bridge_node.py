@@ -1,4 +1,5 @@
 import json
+import math
 import threading
 import time
 
@@ -20,12 +21,18 @@ class ESP32Bridge(Node):
         self.declare_parameter('baudrate', 115200)
         self.declare_parameter('timeout', 0.05)
         self.declare_parameter('imu_frame_id', 'imu_link')
+        self.declare_parameter('enc_vel_max_abs_mps', 3.0)
+        self.declare_parameter('enc_vel_max_step_mps', 1.0)
 
         # Read parameters and store in self.*
         self.port = self.get_parameter('port').get_parameter_value().string_value
         self.baudrate = self.get_parameter('baudrate').get_parameter_value().integer_value
         self.timeout = self.get_parameter('timeout').get_parameter_value().double_value
         self.imu_frame_id = self.get_parameter('imu_frame_id').get_parameter_value().string_value
+        self.enc_vel_max_abs_mps = float(self.get_parameter('enc_vel_max_abs_mps').value)
+        self.enc_vel_max_step_mps = float(self.get_parameter('enc_vel_max_step_mps').value)
+        self.last_enc_vel = None
+        self.last_enc_reject_warn_time = 0.0
 
         # Ultrasonic params
         self.declare_parameter('ultra_min_m', 0.02)
@@ -276,14 +283,57 @@ class ESP32Bridge(Node):
             self.get_logger().warn('enc_vel is not a list from ESP32')
             return
 
-        msg = Float32MultiArray()
         try:
-            msg.data = [float(x) for x in enc_list]
+            values = [float(x) for x in enc_list]
         except (TypeError, ValueError) as e:
             self.get_logger().warn(f'Invalid enc_vel format from ESP32: {e}')
             return
 
+        values = values[:4]
+        if not self.accept_enc_vel(values):
+            return
+
+        self.last_enc_vel = values
+        msg = Float32MultiArray()
+        msg.data = values
         self.pub_enc_vel.publish(msg)
+
+    def accept_enc_vel(self, values):
+        if len(values) < 4:
+            self.get_logger().warn('enc_vel must contain at least 4 wheel values')
+            return False
+
+        reason = None
+        for idx, value in enumerate(values):
+            if not math.isfinite(value):
+                reason = f'wheel {idx + 1} is not finite: {value}'
+                break
+            if self.enc_vel_max_abs_mps > 0.0 and abs(value) > self.enc_vel_max_abs_mps:
+                reason = (
+                    f'wheel {idx + 1} abs velocity {value:.3f} m/s exceeds '
+                    f'{self.enc_vel_max_abs_mps:.3f} m/s'
+                )
+                break
+            if (
+                self.last_enc_vel is not None and
+                self.enc_vel_max_step_mps > 0.0 and
+                abs(value - self.last_enc_vel[idx]) > self.enc_vel_max_step_mps
+            ):
+                reason = (
+                    f'wheel {idx + 1} velocity step '
+                    f'{self.last_enc_vel[idx]:.3f}->{value:.3f} m/s exceeds '
+                    f'{self.enc_vel_max_step_mps:.3f} m/s'
+                )
+                break
+
+        if reason is None:
+            return True
+
+        now = time.monotonic()
+        if now - self.last_enc_reject_warn_time >= 2.0:
+            self.last_enc_reject_warn_time = now
+            self.get_logger().warn(f'Dropped invalid enc_vel sample: {reason}')
+        return False
 
     def publish_imu(self, data: dict):
         imu_msg = Imu()

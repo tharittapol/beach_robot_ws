@@ -38,11 +38,11 @@ ekf_bno_imu_only:
     imu0_config: [false, false, false,
                   false, false, true,
                   false, false, false,
-                  false, false, true,
-                  true,  true,  false]
+                  false, false, false,
+                  false, false, false]
     imu0_queue_size: 10
     imu0_differential: false
-    imu0_relative: false
+    imu0_relative: true
     imu0_remove_gravitational_acceleration: false
 
 ekf_zed_imu_only:
@@ -63,10 +63,10 @@ ekf_zed_imu_only:
                   false, false, true,
                   false, false, false,
                   false, false, true,
-                  true,  true,  false]
+                  false, false, false]
     imu0_queue_size: 10
     imu0_differential: false
-    imu0_relative: false
+    imu0_relative: true
     imu0_remove_gravitational_acceleration: false
 
 ekf_wheel_bno:
@@ -96,11 +96,11 @@ ekf_wheel_bno:
     imu0_config: [false, false, false,
                   false, false, true,
                   false, false, false,
-                  false, false, true,
+                  false, false, false,
                   false, false, false]
     imu0_queue_size: 10
     imu0_differential: false
-    imu0_relative: false
+    imu0_relative: true
     imu0_remove_gravitational_acceleration: false
 
 ekf_wheel_zed:
@@ -134,5 +134,5 @@ ekf_wheel_zed:
                   false, false, false]
     imu0_queue_size: 10
     imu0_differential: false
-    imu0_relative: false
+    imu0_relative: true
     imu0_remove_gravitational_acceleration: false
