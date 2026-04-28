@@ -13,6 +13,7 @@ static Adafruit_BNO055 bno(55, 0x28);
 static bool s_ready = false;
 static uint32_t s_last_retry_ms = 0;
 static ImuData s_last = {0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false};
+static constexpr float GYRO_DPS_TO_RADPS = 0.01745329252f;
 
 static void try_init() {
   if (bno.begin()) {
@@ -88,9 +89,11 @@ void imu_poll() {
   s_last.ay = -lin_acc.y();
   s_last.az =  lin_acc.z(); // แกน Z ชี้ขึ้นฟ้าเหมือนเดิม ไม่ต้องแก้
 
-  s_last.gx = -gyro.x();
-  s_last.gy = -gyro.y();
-  s_last.gz =  gyro.z();
+  // Adafruit_BNO055 returns gyro vector values in deg/s, while ROS Imu
+  // angular_velocity is rad/s.
+  s_last.gx = -gyro.x() * GYRO_DPS_TO_RADPS;
+  s_last.gy = -gyro.y() * GYRO_DPS_TO_RADPS;
+  s_last.gz =  gyro.z() * GYRO_DPS_TO_RADPS;
 
   // 2. หมุนแกน Quaternion 180 องศารอบแกน Z
   // อ้างอิงจากสูตร q_new = q_imu * q_offset(หมุน Yaw 180 องศา)
