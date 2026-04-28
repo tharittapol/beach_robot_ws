@@ -5,7 +5,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     # ---- Set these roughly first, then measure and tune ----
     # base_link -> imu_link
-    imu_xyz = (0.00, 0.00, 0.20)   # meters
+    imu_xyz = (0.31685, 0.00, 0.646)   # meters
     imu_rpy = (0.0, 0.0, 0.0)      # radians
 
     # base_link -> gps_link (antenna position)
@@ -18,7 +18,7 @@ def generate_launch_description():
     head_rpy = (0.0, 0.0, 0.0)
 
     # base_link -> zed_camera_link  (ZED Mini mounting)
-    zed_xyz = (0.12, 0.00, 0.25)   # meters
+    zed_xyz = (0.71245, 0.00, 0.394)   # meters
     zed_rpy = (0.0, 0.0, 0.0)      # radians
     zed_imu_xyz = zed_xyz
     zed_imu_rpy = zed_rpy
