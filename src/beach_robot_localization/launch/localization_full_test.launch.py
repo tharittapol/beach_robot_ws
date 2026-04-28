@@ -56,7 +56,7 @@ def generate_launch_description():
 
         DeclareLaunchArgument('joy_device', default_value='/dev/input/js_joy'),
         DeclareLaunchArgument('max_linear', default_value='0.17'),
-        DeclareLaunchArgument('max_angular', default_value='0.30'),
+        DeclareLaunchArgument('max_angular', default_value='0.35'),
 
         DeclareLaunchArgument(
             'mixer_params_file',

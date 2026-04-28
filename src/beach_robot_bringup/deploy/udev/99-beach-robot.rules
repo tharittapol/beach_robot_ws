@@ -2,8 +2,16 @@
 # Beach Robot persistent device names (Jetson Orin Nano)
 # =========================
 
-# ---- Logitech joy (USB device on port 2.1) ----
+# ---- Logitech F710 joy (USB device on port 2.1) ----
 SUBSYSTEM=="input", KERNEL=="js*", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.1:1.0", SYMLINK+="input/js_joy", MODE:="0660", GROUP:="input"
+# Vendor/product fallback for F710 XInput/DInput receivers. Keep this in case
+# the hub path changes when ZED/GNSS/ESP32 are plugged in a different order.
+SUBSYSTEM=="input", KERNEL=="js*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c21f", SYMLINK+="input/js_joy", MODE:="0660", GROUP:="input"
+SUBSYSTEM=="input", KERNEL=="js*", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c219", SYMLINK+="input/js_joy", MODE:="0660", GROUP:="input"
+# Keep the F710 receiver awake; autosuspend can make wireless input look alive
+# to joy_node while packets stall under USB bus load.
+ACTION=="add|change", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="046d", ATTR{idProduct}=="c21f", TEST=="power/control", ATTR{power/control}:="on"
+ACTION=="add|change", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="046d", ATTR{idProduct}=="c219", TEST=="power/control", ATTR{power/control}:="on"
 
 # ---- ZED Mini (USB device on port 2.2) -> /dev/cam ----
 SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ENV{ID_PATH}=="platform-3610000.usb-usb-0:2.2", SYMLINK+="cam"
