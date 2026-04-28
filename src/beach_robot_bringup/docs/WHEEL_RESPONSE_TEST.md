@@ -125,6 +125,67 @@ If `cmdbad%` is high, the ESP32 did not receive/hold the same wheel command
 that ROS published. Re-run with a slower debug stream such as
 `--debug-rate-ms 500` before tuning motor constants from that log.
 
+## Spin In-Place Tuning
+
+Use this when the robot rotates in place poorly, especially when the front pair
+drags the rear pair or some wheels stall on a new surface.
+
+Start the normal test stack:
+
+```bash
+ros2 launch beach_robot_localization localization_full_test.launch.py use_teleop:=false
+```
+
+Record a controlled spin test. This publishes `/cmd_vel`, so do not drive with
+the joystick during this command:
+
+```bash
+ros2 run beach_robot_bringup wheel_response_test \
+  --label spin_tune_001 \
+  --tests spin_left,spin_right \
+  --spin-rate 0.30 \
+  --step-sec 5.0 \
+  --stop-sec 2.0 \
+  --settle-sec 1.0 \
+  --debug-rate-ms 250 \
+  --log-rate-hz 20
+```
+
+Analyze front/rear balance:
+
+```bash
+ros2 run beach_robot_bringup spin_tune_analyze \
+  ~/beach_robot_logs/wheel_response/wheel_response_YYYYMMDD_HHMMSS_spin_tune_001.csv \
+  --enc-source ros \
+  --settle-sec 0.8 \
+  --min-segment-sec 1.5
+```
+
+If you want to isolate the ESP32/motor layer from the mixer, bypass `/cmd_vel`
+and publish `/wheel_cmd` directly:
+
+```bash
+ros2 launch beach_robot_localization localization_full_test.launch.py use_teleop:=false use_mixer:=false
+```
+
+```bash
+ros2 run beach_robot_bringup wheel_response_test \
+  --label spin_direct_001 \
+  --tests spin_left,spin_right \
+  --direct-wheel-cmd \
+  --direct-spin-front-mps 0.10 \
+  --direct-spin-rear-mps 0.19 \
+  --step-sec 5.0 \
+  --stop-sec 2.0 \
+  --settle-sec 1.0 \
+  --debug-rate-ms 250 \
+  --log-rate-hz 20
+```
+
+Then run `spin_tune_analyze` on the direct CSV too. If direct spin looks good
+but `/cmd_vel` spin does not, tune `mixer.yaml`. If direct spin also fails,
+tune firmware floors, PID, VMAX, or inspect the weak wheel mechanically.
+
 ## Logged Signals
 
 - commanded `/cmd_vel` from the runner

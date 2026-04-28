@@ -35,6 +35,7 @@ setup(
             'preflight_check = beach_robot_bringup.tools.preflight_check:main',
             'wheel_response_test = beach_robot_bringup.tools.wheel_response_test:main',
             'wheel_response_analyze = beach_robot_bringup.tools.analyze_wheel_response:main',
+            'spin_tune_analyze = beach_robot_bringup.tools.analyze_spin_tune:main',
         ],
     },
 )

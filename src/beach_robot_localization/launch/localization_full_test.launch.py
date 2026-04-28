@@ -26,6 +26,7 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     use_esp32 = LaunchConfiguration('use_esp32')
     use_teleop = LaunchConfiguration('use_teleop')
+    use_mixer = LaunchConfiguration('use_mixer')
     use_zed = LaunchConfiguration('use_zed')
 
     esp32_port = LaunchConfiguration('esp32_port')
@@ -46,6 +47,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('use_esp32', default_value='true'),
         DeclareLaunchArgument('use_teleop', default_value='true'),
+        DeclareLaunchArgument('use_mixer', default_value='true'),
         DeclareLaunchArgument('use_zed', default_value='true'),
 
         DeclareLaunchArgument('esp32_port', default_value='/dev/ttyESP32'),
@@ -106,6 +108,7 @@ def generate_launch_description():
                 'input_topic': '/cmd_vel',
                 'output_topic': '/wheel_cmd',
             },
+            condition=IfCondition(use_mixer),
         ),
 
         _include(
