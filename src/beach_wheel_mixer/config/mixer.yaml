@@ -5,18 +5,29 @@ wheel_mps_mixer:
 
     front_track_width: 0.734
     rear_track_width: 1.179
+    # Distance between front track contact center and rear wheel contact center.
+    # The mixer uses this to avoid commanding a turn radius that makes the
+    # front tracks and rear wheels fight each other on high-friction ground.
+    wheelbase: 0.950
 
     # Start from the smoother indoor baseline, then trim for the higher-friction
-    # outdoor surface. Keep pure yaw disabled; use rolling arcs for turning.
+    # outdoor surface.
     turn_gain_front: 2.45
     turn_gain_rear: 0.90
     in_place_linear_threshold: 0.03
     in_place_angular_threshold: 0.05
-    turn_gain_front_in_place: 0.00
-    turn_gain_rear_in_place: 0.00
-    # Limit yaw dynamically. A small negative value lets the inside front wheel
-    # reverse gently for tighter outdoor arcs without jumping to spot-turn.
-    min_curve_inner_mps: -0.02
+    # Soft pivot: left/right sides rotate opposite directions. Increase the
+    # sustained target enough to keep turning after breakaway.
+    turn_gain_front_in_place: 1.25
+    turn_gain_rear_in_place: 0.65
+    # Limit yaw dynamically so inside wheels do not reverse on rolling arcs.
+    # Reverse assist overloaded the drivetrain on high-friction ground.
+    min_curve_inner_mps: 0.00
+    # Rolling curves only: cap curvature and reduce rear yaw as the requested
+    # radius gets tight, so the rear round wheels follow instead of drifting or
+    # tearing away from the front tracked section.
+    min_turn_radius: 0.85
+    rear_yaw_relief: 0.35
 
     front_left_scale: 1.0
     front_right_scale: 1.0

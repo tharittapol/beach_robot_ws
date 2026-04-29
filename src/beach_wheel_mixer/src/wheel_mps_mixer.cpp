@@ -16,6 +16,7 @@ public:
     // --- Parameters ---
     front_track_width_ = this->declare_parameter<double>("front_track_width", 0.75); // m
     rear_track_width_  = this->declare_parameter<double>("rear_track_width",  1.17); // m
+    wheelbase_ = this->declare_parameter<double>("wheelbase", 0.975); // m
 
     // Optional yaw tuning gains. Keep at 1.0 for geometry-first mixing.
     turn_gain_front_ = this->declare_parameter<double>("turn_gain_front", 1.0);
@@ -25,6 +26,8 @@ public:
     turn_gain_front_in_place_ = this->declare_parameter<double>("turn_gain_front_in_place", 1.0);
     turn_gain_rear_in_place_  = this->declare_parameter<double>("turn_gain_rear_in_place",  1.0);
     min_curve_inner_mps_ = this->declare_parameter<double>("min_curve_inner_mps", 0.02);
+    min_turn_radius_ = this->declare_parameter<double>("min_turn_radius", 0.85);
+    rear_yaw_relief_ = this->declare_parameter<double>("rear_yaw_relief", 0.35);
 
     // Per-wheel scale for small calibration trims.
     front_left_scale_  = this->declare_parameter<double>("front_left_scale", 1.0);
@@ -81,9 +84,10 @@ public:
 
     RCLCPP_INFO(
       this->get_logger(),
-      "wheel_mps_mixer in=%s out=%s front_track=%.3f rear_track=%.3f max_v=%.2f max_w=%.2f accel=%.2f decel=%.2f in_place_lin<=%.2f in_place_ang>=%.2f",
-      input_topic_.c_str(), output_topic_.c_str(), front_track_width_, rear_track_width_, max_v_, max_w_,
-      max_accel_mps2_, max_decel_mps2_, in_place_linear_threshold_, in_place_angular_threshold_);
+      "wheel_mps_mixer in=%s out=%s front_track=%.3f rear_track=%.3f wheelbase=%.3f min_turn_radius=%.2f rear_yaw_relief=%.2f max_v=%.2f max_w=%.2f accel=%.2f decel=%.2f in_place_lin<=%.2f in_place_ang>=%.2f",
+      input_topic_.c_str(), output_topic_.c_str(), front_track_width_, rear_track_width_,
+      wheelbase_, min_turn_radius_, rear_yaw_relief_, max_v_, max_w_, max_accel_mps2_,
+      max_decel_mps2_, in_place_linear_threshold_, in_place_angular_threshold_);
   }
 
 private:
@@ -119,6 +123,33 @@ private:
     }
 
     return scale;
+  }
+
+  double limit_w_for_turn_radius(double v, double w) const
+  {
+    const double min_radius = std::max(0.0, min_turn_radius_);
+    if (min_radius <= 1e-9 || std::abs(v) <= 1e-9 || std::abs(w) <= 1e-9) {
+      return w;
+    }
+
+    const double max_w_abs = std::abs(v) / min_radius;
+    return std::copysign(std::min(std::abs(w), max_w_abs), w);
+  }
+
+  double rear_yaw_relief_factor(double v, double w) const
+  {
+    if (wheelbase_ <= 0.0 || rear_yaw_relief_ <= 0.0 || std::abs(w) <= 1e-9) {
+      return 1.0;
+    }
+
+    const double v_abs = std::max(std::abs(v), 1e-3);
+    const double curvature = std::abs(w) / v_abs;
+    const double conflict = curvature * wheelbase_;
+
+    // On high-friction ground the rear round wheels and front tracks do not
+    // share the same scrub behavior. Reduce rear yaw as curvature tightens so
+    // the rear axle follows the front instead of fighting the chassis.
+    return 1.0 / (1.0 + rear_yaw_relief_ * conflict * conflict);
   }
 
   double limit_w_for_rolling_curve(double v, double w, double front_turn_gain, double rear_turn_gain) const
@@ -161,11 +192,19 @@ private:
       std::abs(v) <= in_place_linear_threshold_ &&
       std::abs(requested_w) >= in_place_angular_threshold_;
 
-    const double front_turn_gain = in_place_turn ? turn_gain_front_in_place_ : turn_gain_front_;
-    const double rear_turn_gain  = in_place_turn ? turn_gain_rear_in_place_  : turn_gain_rear_;
-    const double w = in_place_turn
+    const double radius_limited_w = in_place_turn
       ? requested_w
-      : limit_w_for_rolling_curve(v, requested_w, front_turn_gain, rear_turn_gain);
+      : limit_w_for_turn_radius(v, requested_w);
+
+    const double rear_relief = in_place_turn
+      ? 1.0
+      : rear_yaw_relief_factor(v, radius_limited_w);
+
+    const double front_turn_gain = in_place_turn ? turn_gain_front_in_place_ : turn_gain_front_;
+    const double rear_turn_gain  = in_place_turn ? turn_gain_rear_in_place_ : (turn_gain_rear_ * rear_relief);
+    const double w = in_place_turn
+      ? radius_limited_w
+      : limit_w_for_rolling_curve(v, radius_limited_w, front_turn_gain, rear_turn_gain);
 
     const double wf = w * front_turn_gain;
     const double wr = w * rear_turn_gain;
@@ -228,11 +267,12 @@ private:
   }
 
   // Params.
-  double front_track_width_, rear_track_width_;
+  double front_track_width_, rear_track_width_, wheelbase_;
   double turn_gain_front_, turn_gain_rear_;
   double in_place_linear_threshold_, in_place_angular_threshold_;
   double turn_gain_front_in_place_, turn_gain_rear_in_place_;
   double min_curve_inner_mps_;
+  double min_turn_radius_, rear_yaw_relief_;
   double front_left_scale_, front_right_scale_, rear_left_scale_, rear_right_scale_;
   double max_v_, max_w_;
   double max_wheel_fl_mps_, max_wheel_fr_mps_, max_wheel_rl_mps_, max_wheel_rr_mps_;
