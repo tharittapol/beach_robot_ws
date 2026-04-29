@@ -42,6 +42,10 @@ def generate_launch_description():
     mixer_params_file = LaunchConfiguration('mixer_params_file')
     linear_scale = LaunchConfiguration('linear_scale')
     angular_scale = LaunchConfiguration('angular_scale')
+    wheel_scale_fl = LaunchConfiguration('wheel_scale_fl')
+    wheel_scale_fr = LaunchConfiguration('wheel_scale_fr')
+    wheel_scale_rl = LaunchConfiguration('wheel_scale_rl')
+    wheel_scale_rr = LaunchConfiguration('wheel_scale_rr')
 
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='false'),
@@ -66,13 +70,33 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'linear_scale',
-            default_value='1.28',
-            description='Wheel odometry linear scale from the latest 2m/1m compare bag.',
+            default_value='1.0',
+            description='Wheel odometry linear scale. Start neutral for no-spin arc tests.',
         ),
         DeclareLaunchArgument(
             'angular_scale',
-            default_value='0.71',
-            description='Wheel odometry yaw scale from the latest 90-degree spin compare bag.',
+            default_value='1.0',
+            description='Wheel odometry yaw scale. Start neutral for no-spin arc tests.',
+        ),
+        DeclareLaunchArgument(
+            'wheel_scale_fl',
+            default_value='1.0',
+            description='Per-wheel encoder scale applied before wheel odometry integration.',
+        ),
+        DeclareLaunchArgument(
+            'wheel_scale_fr',
+            default_value='1.0',
+            description='Per-wheel encoder scale applied before wheel odometry integration.',
+        ),
+        DeclareLaunchArgument(
+            'wheel_scale_rl',
+            default_value='0.68',
+            description='Rear-left encoder scale from no-spin drive response tests.',
+        ),
+        DeclareLaunchArgument(
+            'wheel_scale_rr',
+            default_value='0.68',
+            description='Rear-right encoder scale from no-spin drive response tests.',
         ),
 
         _include(
@@ -134,6 +158,10 @@ def generate_launch_description():
                 'zed_imu_topic': '/zed/zed_node/imu/data',
                 'linear_scale': linear_scale,
                 'angular_scale': angular_scale,
+                'wheel_scale_fl': wheel_scale_fl,
+                'wheel_scale_fr': wheel_scale_fr,
+                'wheel_scale_rl': wheel_scale_rl,
+                'wheel_scale_rr': wheel_scale_rr,
             },
         ),
     ])

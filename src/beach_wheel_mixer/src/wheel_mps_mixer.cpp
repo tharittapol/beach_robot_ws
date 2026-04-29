@@ -24,6 +24,7 @@ public:
     in_place_angular_threshold_ = this->declare_parameter<double>("in_place_angular_threshold", 0.05);
     turn_gain_front_in_place_ = this->declare_parameter<double>("turn_gain_front_in_place", 1.0);
     turn_gain_rear_in_place_  = this->declare_parameter<double>("turn_gain_rear_in_place",  1.0);
+    min_curve_inner_mps_ = this->declare_parameter<double>("min_curve_inner_mps", 0.02);
 
     // Per-wheel scale for small calibration trims.
     front_left_scale_  = this->declare_parameter<double>("front_left_scale", 1.0);
@@ -120,17 +121,51 @@ private:
     return scale;
   }
 
+  double limit_w_for_rolling_curve(double v, double w, double front_turn_gain, double rear_turn_gain) const
+  {
+    const double v_abs = std::abs(v);
+    const double w_abs = std::abs(w);
+    if (w_abs <= 1e-9) {
+      return 0.0;
+    }
+
+    // Keep the inside wheels rolling in the travel direction. This allows
+    // tight arcs without asking the chassis to bind like a spot turn.
+    double limited_w_abs = w_abs;
+    const double inner_margin = std::max(0.0, min_curve_inner_mps_);
+    const double usable_v = v_abs - inner_margin;
+    if (usable_v <= 0.0) {
+      return 0.0;
+    }
+
+    const auto apply_axle_limit = [&](double turn_gain, double track_width) {
+      const double denom = std::abs(turn_gain) * track_width * 0.5;
+      if (denom <= 1e-9) {
+        return;
+      }
+      limited_w_abs = std::min(limited_w_abs, usable_v / denom);
+    };
+
+    apply_axle_limit(front_turn_gain, front_track_width_);
+    apply_axle_limit(rear_turn_gain, rear_track_width_);
+
+    return std::copysign(limited_w_abs, w);
+  }
+
   void on_cmd(const geometry_msgs::msg::Twist::SharedPtr msg)
   {
     const double v = clamp(msg->linear.x,  -max_v_, max_v_);
-    const double w = clamp(msg->angular.z, -max_w_, max_w_);
+    const double requested_w = clamp(msg->angular.z, -max_w_, max_w_);
 
     const bool in_place_turn =
       std::abs(v) <= in_place_linear_threshold_ &&
-      std::abs(w) >= in_place_angular_threshold_;
+      std::abs(requested_w) >= in_place_angular_threshold_;
 
     const double front_turn_gain = in_place_turn ? turn_gain_front_in_place_ : turn_gain_front_;
     const double rear_turn_gain  = in_place_turn ? turn_gain_rear_in_place_  : turn_gain_rear_;
+    const double w = in_place_turn
+      ? requested_w
+      : limit_w_for_rolling_curve(v, requested_w, front_turn_gain, rear_turn_gain);
 
     const double wf = w * front_turn_gain;
     const double wr = w * rear_turn_gain;
@@ -197,6 +232,7 @@ private:
   double turn_gain_front_, turn_gain_rear_;
   double in_place_linear_threshold_, in_place_angular_threshold_;
   double turn_gain_front_in_place_, turn_gain_rear_in_place_;
+  double min_curve_inner_mps_;
   double front_left_scale_, front_right_scale_, rear_left_scale_, rear_right_scale_;
   double max_v_, max_w_;
   double max_wheel_fl_mps_, max_wheel_fr_mps_, max_wheel_rl_mps_, max_wheel_rr_mps_;

@@ -22,7 +22,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'max_angular',
-            default_value='0.22',
+            default_value='0.30',
             description='Maximum manual angular speed in rad/s.',
         ),
 
