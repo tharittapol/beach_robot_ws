@@ -6,23 +6,22 @@ wheel_mps_mixer:
     front_track_width: 0.734
     rear_track_width: 1.179
 
-    # Keep yaw authority only for moving curves. This chassis binds during
-    # rotate-in-place on the current surface, so pure yaw commands are ignored
-    # below and localization tests should use rolling arcs instead of spot turns.
-    turn_gain_front: 2.00
-    turn_gain_rear: 1.25
+    # Start from the smoother indoor baseline, then trim for the higher-friction
+    # outdoor surface. Keep pure yaw disabled; use rolling arcs for turning.
+    turn_gain_front: 2.45
+    turn_gain_rear: 1.80
     in_place_linear_threshold: 0.03
     in_place_angular_threshold: 0.05
     turn_gain_front_in_place: 0.00
     turn_gain_rear_in_place: 0.00
     # Limit yaw dynamically so the inside wheels keep rolling forward/backward.
-    # Smaller = tighter but more drivetrain stress; 0.02 is a safe first value.
-    min_curve_inner_mps: 0.02
+    # Smaller = tighter but more drivetrain stress; 0.01 keeps a small margin.
+    min_curve_inner_mps: 0.01
 
     front_left_scale: 1.0
     front_right_scale: 1.0
-    rear_left_scale: 0.68
-    rear_right_scale: 0.68
+    rear_left_scale: 1.0
+    rear_right_scale: 1.0
 
     publish_rate_hz: 50.0
     cmd_timeout_ms: 300
