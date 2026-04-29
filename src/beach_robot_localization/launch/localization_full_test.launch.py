@@ -90,13 +90,13 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'wheel_scale_rl',
-            default_value='0.68',
-            description='Rear-left encoder scale from no-spin drive response tests.',
+            default_value='0.64',
+            description='Rear-left encoder scale from chain-fixed straight response tests.',
         ),
         DeclareLaunchArgument(
             'wheel_scale_rr',
-            default_value='0.68',
-            description='Rear-right encoder scale from no-spin drive response tests.',
+            default_value='0.64',
+            description='Rear-right encoder scale from chain-fixed straight response tests.',
         ),
 
         _include(

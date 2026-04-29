@@ -9,14 +9,14 @@ wheel_mps_mixer:
     # Start from the smoother indoor baseline, then trim for the higher-friction
     # outdoor surface. Keep pure yaw disabled; use rolling arcs for turning.
     turn_gain_front: 2.45
-    turn_gain_rear: 1.80
+    turn_gain_rear: 1.20
     in_place_linear_threshold: 0.03
     in_place_angular_threshold: 0.05
     turn_gain_front_in_place: 0.00
     turn_gain_rear_in_place: 0.00
-    # Limit yaw dynamically so the inside wheels keep rolling forward/backward.
-    # Smaller = tighter but more drivetrain stress; 0.01 keeps a small margin.
-    min_curve_inner_mps: 0.01
+    # Limit yaw dynamically so inside wheels stay powered forward/backward.
+    # Near-zero inside targets bind on high-friction ground, so keep margin.
+    min_curve_inner_mps: 0.05
 
     front_left_scale: 1.0
     front_right_scale: 1.0
