@@ -6,18 +6,15 @@ wheel_mps_mixer:
     front_track_width: 0.734
     rear_track_width: 1.179
 
-    # Floor testing showed the inside wheels keep rolling and the outside front
-    # wheel loads down during joystick curves, so use extra yaw authority for
-    # moving curves. In-place spin remains separately tuned below.
+    # Keep yaw authority only for moving curves. This chassis binds during
+    # rotate-in-place on the current surface, so pure yaw commands are ignored
+    # below and localization tests should use arcs instead of spot turns.
     turn_gain_front: 2.45
     turn_gain_rear: 2.75
-    in_place_linear_threshold: 0.05
+    in_place_linear_threshold: 0.08
     in_place_angular_threshold: 0.05
-    # Front wheels have more authority on the current test surface, so bias
-    # in-place turns toward rear assistance instead of letting the front pair
-    # drag the rear pair around.
-    turn_gain_front_in_place: 0.90
-    turn_gain_rear_in_place: 1.05
+    turn_gain_front_in_place: 0.00
+    turn_gain_rear_in_place: 0.00
 
     front_left_scale: 1.0
     front_right_scale: 1.0

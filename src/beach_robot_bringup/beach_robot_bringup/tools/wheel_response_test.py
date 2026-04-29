@@ -128,6 +128,12 @@ class WheelResponseTest(Node):
             "dbg_in_place_turn",
             "dbg_moving_turn",
             "dbg_spin_start_boost",
+            "dbg_wheel_test_active",
+            "dbg_wheel_test_wheel",
+            "dbg_wheel_test_direct_u",
+            "dbg_wheel_test_closed_loop",
+            "dbg_wheel_test_target",
+            "dbg_wheel_test_remaining_ms",
         ))
         return fields
 
@@ -170,6 +176,17 @@ class WheelResponseTest(Node):
             "dbg_moving_turn": debug.get("moving_turn", ""),
             "dbg_spin_start_boost": debug.get("spin_start_boost", ""),
         }
+
+        wheel_test = debug.get("wheel_test", {})
+        if isinstance(wheel_test, dict):
+            row.update({
+                "dbg_wheel_test_active": wheel_test.get("active", ""),
+                "dbg_wheel_test_wheel": wheel_test.get("wheel", ""),
+                "dbg_wheel_test_direct_u": wheel_test.get("direct_u", ""),
+                "dbg_wheel_test_closed_loop": wheel_test.get("closed_loop", ""),
+                "dbg_wheel_test_target": wheel_test.get("target", ""),
+                "dbg_wheel_test_remaining_ms": wheel_test.get("remaining_ms", ""),
+            })
 
         self._add_array(row, "ros_wheel_cmd", self.latest_wheel_cmd)
         self._add_array(row, "ros_enc_vel", self.latest_enc_vel)

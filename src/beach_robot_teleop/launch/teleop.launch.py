@@ -22,7 +22,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'max_angular',
-            default_value='0.30',
+            default_value='0.22',
             description='Maximum manual angular speed in rad/s.',
         ),
 
@@ -64,7 +64,7 @@ def generate_launch_description():
                 'publish_rate_hz': 20.0,
                 'joy_timeout_sec': 0.5,
                 'linear_slew_rate': 0.35,
-                'angular_slew_rate': 0.90,
+                'angular_slew_rate': 0.60,
                 'linear_decel_rate': 3.0,
                 'angular_decel_rate': 4.0,
 

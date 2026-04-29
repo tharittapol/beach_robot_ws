@@ -1,13 +1,13 @@
 # Confirm the caster login works (from Jetson)
 ```bash
-curl --http0.9 -v --user "tharittapol.big-at-gmail-d-com:none" \
-  "http://rtk2go.com:2101/TH-Kukot" --max-time 5 --output /dev/null
+curl --http0.9 -v --user "wachiramate-at-gmail-d-com:none" \
+  "http://rtk2go.com:2101/Pump236" --max-time 5 --output /dev/null
 ```
 `Expected`: see ICY 200 OK in the headers and then it will stream binary until timeout.
 
 # Confirm NTRIP is truly streaming RTCM (strong proof)
 ```bash
-printf "GET /TH-Kukot HTTP/1.0\r\nUser-Agent: NTRIP\r\nAuthorization: Basic $(printf 'tharittapol.big-at-gmail-d-com:none' | base64)\r\n\r\n" \
+printf "GET /Pump236 HTTP/1.0\r\nUser-Agent: NTRIP\r\nAuthorization: Basic $(printf 'wachiramate-at-gmail-d-com:none' | base64)\r\n\r\n" \
 | timeout 5 nc rtk2go.com 2101 | wc -c
 ```
 `Expected`: If it returns a large number (typically thousands to hundreds of thousands of bytes in 5s), RTCM is streaming.

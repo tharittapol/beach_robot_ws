@@ -172,7 +172,20 @@ def hint_for_segment(name, wheel_stats, args):
     for wheel in WHEELS:
         stall_pct = wheel_stats[wheel]["stall_pct"]
         if stall_pct is not None and stall_pct >= args.warn_stall_pct:
-            hints.append(f"{wheel} stalls {stall_pct:.0f}%: increase that wheel hold floor or inspect motor/traction")
+            motor_abs = wheel_stats[wheel]["motor"]
+            motor0_pct = wheel_stats[wheel]["motor0_pct"]
+            if motor_abs is not None and motor_abs >= args.warn_motor_high_u:
+                hints.append(
+                    f"{wheel} stalls {stall_pct:.0f}% with |u|={motor_abs:.2f}: "
+                    "inspect motor/driver/binding/traction before increasing floor"
+                )
+            elif motor0_pct is not None and motor0_pct >= args.warn_motor0_pct:
+                hints.append(
+                    f"{wheel} stalls {stall_pct:.0f}% and motor is often zero: "
+                    "target/floor may be too low or PID is braking"
+                )
+            else:
+                hints.append(f"{wheel} stalls {stall_pct:.0f}%: increase that wheel hold floor or inspect motor/traction")
         signbad_pct = wheel_stats[wheel]["signbad_pct"]
         if signbad_pct is not None and signbad_pct >= args.warn_signbad_pct:
             hints.append(f"{wheel} sign mismatch {signbad_pct:.0f}%: check encoder/motor sign or wheel dragging")
@@ -198,6 +211,8 @@ def main():
     parser.add_argument("--imbalance-ratio", type=float, default=1.25)
     parser.add_argument("--warn-stall-pct", type=float, default=25.0)
     parser.add_argument("--warn-signbad-pct", type=float, default=10.0)
+    parser.add_argument("--warn-motor-high-u", type=float, default=0.30)
+    parser.add_argument("--warn-motor0-pct", type=float, default=50.0)
     args = parser.parse_args()
 
     grouped = defaultdict(list)
