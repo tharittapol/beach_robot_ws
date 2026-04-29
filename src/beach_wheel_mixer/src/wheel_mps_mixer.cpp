@@ -129,11 +129,11 @@ private:
       return 0.0;
     }
 
-    // Keep the inside wheels rolling in the travel direction. This allows
-    // tight arcs without asking the chassis to bind like a spot turn.
+    // Keep the inside wheels above the configured minimum. A small negative
+    // value allows a gentle reverse assist for tighter outdoor arcs.
     double limited_w_abs = w_abs;
-    const double inner_margin = std::max(0.0, min_curve_inner_mps_);
-    const double usable_v = v_abs - inner_margin;
+    const double min_inner_mps = min_curve_inner_mps_;
+    const double usable_v = v_abs - min_inner_mps;
     if (usable_v <= 0.0) {
       return 0.0;
     }
