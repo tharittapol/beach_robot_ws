@@ -23,8 +23,8 @@ wheel_mps_mixer:
     # Inject a tiny forward creep for pure yaw joystick commands. Spin-right
     # needs a little more because the negative-side wheels pull backward harder.
     in_place_linear_bias: 0.03
-    in_place_linear_bias_left: 0.03
-    in_place_linear_bias_right: 0.04
+    in_place_linear_bias_left: 0.04
+    in_place_linear_bias_right: 0.06
     # Limit yaw dynamically so inside wheels do not reverse on rolling arcs.
     # Reverse assist overloaded the drivetrain on high-friction ground.
     min_curve_inner_mps: 0.00
