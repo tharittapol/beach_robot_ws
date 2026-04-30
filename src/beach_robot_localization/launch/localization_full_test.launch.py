@@ -34,6 +34,7 @@ def generate_launch_description():
     esp32_timeout = LaunchConfiguration('esp32_timeout')
     enc_vel_max_abs_mps = LaunchConfiguration('enc_vel_max_abs_mps')
     enc_vel_max_step_mps = LaunchConfiguration('enc_vel_max_step_mps')
+    wheel_cmd_send_rate_hz = LaunchConfiguration('wheel_cmd_send_rate_hz')
 
     joy_device = LaunchConfiguration('joy_device')
     max_linear = LaunchConfiguration('max_linear')
@@ -59,6 +60,11 @@ def generate_launch_description():
         DeclareLaunchArgument('esp32_timeout', default_value='0.05'),
         DeclareLaunchArgument('enc_vel_max_abs_mps', default_value='3.0'),
         DeclareLaunchArgument('enc_vel_max_step_mps', default_value='1.0'),
+        DeclareLaunchArgument(
+            'wheel_cmd_send_rate_hz',
+            default_value='30.0',
+            description='Rate-limit wheel_cmd serial writes from the ESP32 bridge.',
+        ),
 
         DeclareLaunchArgument('joy_device', default_value='/dev/input/js_joy'),
         DeclareLaunchArgument('max_linear', default_value='0.17'),
@@ -108,6 +114,7 @@ def generate_launch_description():
                 'timeout': esp32_timeout,
                 'enc_vel_max_abs_mps': enc_vel_max_abs_mps,
                 'enc_vel_max_step_mps': enc_vel_max_step_mps,
+                'wheel_cmd_send_rate_hz': wheel_cmd_send_rate_hz,
             },
             condition=IfCondition(use_esp32),
         ),

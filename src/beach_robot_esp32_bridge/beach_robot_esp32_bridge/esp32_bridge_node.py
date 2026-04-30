@@ -124,7 +124,9 @@ class ESP32Bridge(Node):
         )
         self.read_thread.start()
 
-        self.get_logger().info('ESP32Bridge node started.')
+        self.get_logger().info(
+            f'ESP32Bridge node started. wheel_cmd_send_rate_hz={self.wheel_cmd_send_rate_hz:.1f}'
+        )
 
     # ------------------------------------------------------------------
     # Serial helpers
