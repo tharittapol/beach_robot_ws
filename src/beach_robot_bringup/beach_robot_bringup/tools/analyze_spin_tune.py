@@ -255,7 +255,7 @@ def main():
     parser.add_argument(
         "--max-debug-age-sec",
         type=float,
-        default=0.75,
+        default=1.5,
         help="Ignore ESP32 debug mode samples older than this when reporting mode percentages.",
     )
     args = parser.parse_args()

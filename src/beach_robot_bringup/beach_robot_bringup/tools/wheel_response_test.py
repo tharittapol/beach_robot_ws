@@ -453,8 +453,8 @@ def parse_args():
     parser.add_argument(
         "--debug-rate-ms",
         type=int,
-        default=250,
-        help="ESP32 debug interval in ms. Keep modest to avoid serial congestion.",
+        default=1000,
+        help="ESP32 debug interval in ms. Keep modest to avoid serial congestion at 115200 baud.",
     )
     parser.add_argument("--no-esp32-debug", action="store_true")
     parser.add_argument("--cmd-vel-topic", default="/cmd_vel")
