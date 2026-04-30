@@ -20,6 +20,9 @@ wheel_mps_mixer:
     # above the drivetrain breakaway speed so PID/floor does not stick-slip.
     turn_gain_front_in_place: 1.60
     turn_gain_rear_in_place: 0.85
+    # Inject a tiny forward creep for pure yaw joystick commands. This keeps the
+    # rear round wheels rolling instead of being dragged sideways during pivot.
+    in_place_linear_bias: 0.03
     # Limit yaw dynamically so inside wheels do not reverse on rolling arcs.
     # Reverse assist overloaded the drivetrain on high-friction ground.
     min_curve_inner_mps: 0.00
