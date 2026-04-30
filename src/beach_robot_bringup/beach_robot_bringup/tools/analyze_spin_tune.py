@@ -158,6 +158,8 @@ def analyze_mode(rows, args):
             "moving_pct": None,
             "boost_pct": None,
             "debug_age": None,
+            "cmd_vel_age": None,
+            "wheel_cmd_age": None,
             "cmd_age_ms": None,
             "enc_age_ms": None,
         }
@@ -171,6 +173,8 @@ def analyze_mode(rows, args):
         "moving_pct": pct(sum(1 for item in valid if item[1] is not None and item[1] >= 0.5), fresh_count),
         "boost_pct": pct(sum(1 for item in valid if item[2] is not None and item[2] >= 0.5), fresh_count),
         "debug_age": debug_age_mean,
+        "cmd_vel_age": mean(to_float(row.get("cmd_vel_age_sec")) for row in rows),
+        "wheel_cmd_age": mean(to_float(row.get("wheel_cmd_age_sec")) for row in rows),
         "cmd_age_ms": mean(to_float(row.get("dbg_cmd_age_ms")) for row in rows),
         "enc_age_ms": mean(to_float(row.get("dbg_enc_age_ms")) for row in rows),
     }
@@ -275,7 +279,8 @@ def main():
         return
 
     mode_rows = [[
-        "test", "seg", "dbg_n", "fresh%", "inplace%", "moving%", "boost%", "cmd_age", "enc_age", "dbg_age",
+        "test", "seg", "dbg_n", "fresh%", "inplace%", "moving%", "boost%",
+        "cmd_age", "enc_age", "dbg_age", "cmdvel_age", "wheel_age",
     ]]
     output_rows = [[
         "test", "seg", "wheel", "n", "|cmd|", "enc_along", "enc/cmd",
@@ -307,6 +312,8 @@ def main():
                 fmt(mode["cmd_age_ms"], 0),
                 fmt(mode["enc_age_ms"], 0),
                 fmt(mode["debug_age"]),
+                fmt(mode["cmd_vel_age"]),
+                fmt(mode["wheel_cmd_age"]),
             ])
             for wheel in WHEELS:
                 s = stats[wheel]

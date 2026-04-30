@@ -11,7 +11,7 @@
 
 static constexpr int WHEEL_COUNT = 4;
 
-static constexpr uint32_t JETSON_BAUD = 115200;
+static constexpr uint32_t JETSON_BAUD = 230400;
 static constexpr uint32_t ENC_BAUD = 115200;
 static constexpr int ENC_UART_RX_PIN = 16;
 static constexpr int ENC_UART_TX_PIN = 17;

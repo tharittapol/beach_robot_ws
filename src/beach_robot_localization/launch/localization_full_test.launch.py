@@ -56,7 +56,7 @@ def generate_launch_description():
         DeclareLaunchArgument('use_zed', default_value='true'),
 
         DeclareLaunchArgument('esp32_port', default_value='/dev/ttyESP32'),
-        DeclareLaunchArgument('esp32_baudrate', default_value='115200'),
+        DeclareLaunchArgument('esp32_baudrate', default_value='230400'),
         DeclareLaunchArgument('esp32_timeout', default_value='0.05'),
         DeclareLaunchArgument('enc_vel_max_abs_mps', default_value='3.0'),
         DeclareLaunchArgument('enc_vel_max_step_mps', default_value='1.0'),

@@ -13,7 +13,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "baudrate",
-            default_value="115200",
+            default_value="230400",
             description="Baud rate"
         ),
         DeclareLaunchArgument(

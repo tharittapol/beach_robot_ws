@@ -18,13 +18,13 @@ wheel_mps_mixer:
     in_place_angular_threshold: 0.05
     # Soft pivot: left/right sides rotate opposite directions. Keep the target
     # above the drivetrain breakaway speed so PID/floor does not stick-slip.
-    turn_gain_front_in_place: 1.60
-    turn_gain_rear_in_place: 0.85
+    turn_gain_front_in_place: 1.75
+    turn_gain_rear_in_place: 0.55
     # Inject a tiny forward creep for pure yaw joystick commands. Spin-right
     # needs a little more because the negative-side wheels pull backward harder.
     in_place_linear_bias: 0.03
-    in_place_linear_bias_left: 0.06
-    in_place_linear_bias_right: 0.06
+    in_place_linear_bias_left: 0.08
+    in_place_linear_bias_right: 0.08
     # Limit yaw dynamically so inside wheels do not reverse on rolling arcs.
     # Reverse assist overloaded the drivetrain on high-friction ground.
     min_curve_inner_mps: 0.00

@@ -18,7 +18,7 @@ class ESP32Bridge(Node):
 
         # Parameters
         self.declare_parameter('port', '/dev/ttyACM0')
-        self.declare_parameter('baudrate', 115200)
+        self.declare_parameter('baudrate', 230400)
         self.declare_parameter('timeout', 0.05)
         self.declare_parameter('imu_frame_id', 'imu_link')
         self.declare_parameter('enc_vel_max_abs_mps', 3.0)
