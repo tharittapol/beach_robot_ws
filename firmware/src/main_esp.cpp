@@ -78,6 +78,12 @@ static uint32_t last_telemetry_ms = 0;
 static uint32_t last_debug_ms = 0;
 static bool last_in_place_turn = false;
 static uint32_t in_place_turn_started_ms = 0;
+static uint32_t usb_json_parse_error_count = 0;
+static uint32_t wheel_cmd_rx_count = 0;
+static uint32_t wheel_cmd_rx_interval_ms = 0;
+static int32_t wheel_cmd_rx_seq = -1;
+static int32_t wheel_cmd_rx_seq_gap = 0;
+static uint32_t last_wheel_cmd_rx_ms = 0;
 
 struct WheelTestState {
   bool active = false;
@@ -114,18 +120,19 @@ static int signFromCommand(float value) {
 static bool isInPlaceTurnCommand() {
   if (wheel_test.active) return false;
 
-  const int s_fl = signFromCommand(v_cmd[0]);
-  const int s_fr = signFromCommand(v_cmd[1]);
-  const int s_rl = signFromCommand(v_cmd[2]);
-  const int s_rr = signFromCommand(v_cmd[3]);
-  if (s_fl == 0 || s_fr == 0 || s_rl == 0 || s_rr == 0) return false;
+  const float left_cmd = 0.5f * (v_cmd[0] + v_cmd[2]);
+  const float right_cmd = 0.5f * (v_cmd[1] + v_cmd[3]);
+  const int s_left = signFromCommand(left_cmd);
+  const int s_right = signFromCommand(right_cmd);
+  if (s_left == 0 || s_right == 0) return false;
 
-  const bool left_same = (s_fl == s_rl);
-  const bool right_same = (s_fr == s_rr);
-  const bool sides_opposite = (s_fl == -s_fr);
+  const bool sides_opposite = (s_left == -s_right);
   const float linear_mean = 0.25f * (v_cmd[0] + v_cmd[1] + v_cmd[2] + v_cmd[3]);
 
-  return left_same && right_same && sides_opposite &&
+  // Creep-pivot intentionally keeps the inside rear wheel near zero to reduce
+  // scrub. Detect spin from side averages instead of requiring every wheel to
+  // have a strong sign, otherwise the ESP32 falls back to moving-turn floors.
+  return sides_opposite &&
          fabsf(linear_mean) <= IN_PLACE_LINEAR_MEAN_MAX_MPS;
 }
 
@@ -240,6 +247,7 @@ static float encoderFeedbackForControl(int idx, float cmd_target) {
 
 struct LineReader {
   size_t n = 0;
+  uint32_t overflow_count = 0;
 
   bool read(Stream &s, char *buf, size_t cap) {
     while (s.available()) {
@@ -254,6 +262,7 @@ struct LineReader {
         buf[n++] = c;
       } else {
         n = 0;
+        ++overflow_count;
       }
     }
     return false;
@@ -577,7 +586,10 @@ static void handleJetsonLine(const char *line) {
 
   StaticJsonDocument<768> doc;
   DeserializationError err = deserializeJson(doc, line);
-  if (err) return;
+  if (err) {
+    ++usb_json_parse_error_count;
+    return;
+  }
 
   if (doc.containsKey("stop") && doc["stop"].as<bool>()) {
     clearWheelTest(true);
@@ -585,13 +597,30 @@ static void handleJetsonLine(const char *line) {
 
   if (doc.containsKey("wheel_cmd")) {
     if (!wheel_test.active) {
+      const uint32_t now_ms = millis();
+      wheel_cmd_rx_interval_ms =
+        (last_wheel_cmd_rx_ms == 0) ? 0 : (now_ms - last_wheel_cmd_rx_ms);
+      last_wheel_cmd_rx_ms = now_ms;
+      ++wheel_cmd_rx_count;
+      if (doc.containsKey("cmd_seq")) {
+        const int32_t seq = doc["cmd_seq"] | -1;
+        if (seq >= 0) {
+          if (wheel_cmd_rx_seq >= 0) {
+            const int32_t expected = wheel_cmd_rx_seq + 1;
+            if (seq != expected) {
+              wheel_cmd_rx_seq_gap += (seq > expected) ? (seq - expected) : 1;
+            }
+          }
+          wheel_cmd_rx_seq = seq;
+        }
+      }
       JsonArray arr = doc["wheel_cmd"];
       clearWheelTest(false);
       for (int i = 0; i < WHEEL_COUNT; ++i) {
         const float val = arr[i] | 0.0f;
         v_cmd[i] = (fabsf(val) < V_CMD_DEADBAND) ? 0.0f : val;
       }
-      last_cmd_ms = millis();
+      last_cmd_ms = now_ms;
     }
   }
 
@@ -818,7 +847,7 @@ static void publishDebug() {
   const uint32_t now_ms = millis();
   const ImuData imu_vals = get_imu_data();
 
-  StaticJsonDocument<3072> doc;
+  StaticJsonDocument<4096> doc;
   JsonObject dbg = doc.createNestedObject("debug");
 
   JsonArray cmd_arr = dbg.createNestedArray("wheel_cmd");
@@ -898,6 +927,12 @@ static void publishDebug() {
 
   dbg["cmd_age_ms"] = wheel_test.active ? 0 : (now_ms - last_cmd_ms);
   dbg["enc_age_ms"] = now_ms - last_enc_ms;
+  dbg["cmd_rx_count"] = wheel_cmd_rx_count;
+  dbg["cmd_rx_interval_ms"] = wheel_cmd_rx_interval_ms;
+  dbg["cmd_seq"] = wheel_cmd_rx_seq;
+  dbg["cmd_seq_gap"] = wheel_cmd_rx_seq_gap;
+  dbg["usb_parse_errors"] = usb_json_parse_error_count;
+  dbg["usb_line_overflows"] = lr_usb.overflow_count;
   dbg["in_place_turn"] = isInPlaceTurnCommand() ? 1 : 0;
   dbg["moving_turn"] = isMovingTurnCommand() ? 1 : 0;
   dbg["spin_start_ms"] = in_place_turn_started_ms;

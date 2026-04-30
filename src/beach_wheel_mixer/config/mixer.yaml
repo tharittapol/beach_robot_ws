@@ -15,7 +15,7 @@ wheel_mps_mixer:
     turn_gain_front: 2.45
     turn_gain_rear: 0.90
     in_place_linear_threshold: 0.03
-    in_place_angular_threshold: 0.05
+    in_place_angular_threshold: 0.03
     # Soft pivot: left/right sides rotate opposite directions. Keep the target
     # above the drivetrain breakaway speed so PID/floor does not stick-slip.
     turn_gain_front_in_place: 1.75

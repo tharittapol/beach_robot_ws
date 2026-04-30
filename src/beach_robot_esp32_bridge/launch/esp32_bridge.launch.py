@@ -33,7 +33,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "wheel_cmd_send_rate_hz",
-            default_value="20.0",
+            default_value="30.0",
             description="Rate-limit wheel_cmd serial writes to keep ESP32 telemetry/debug responsive."
         ),
 

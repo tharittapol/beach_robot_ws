@@ -23,7 +23,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('imu_frame_id', 'imu_link')
         self.declare_parameter('enc_vel_max_abs_mps', 3.0)
         self.declare_parameter('enc_vel_max_step_mps', 1.0)
-        self.declare_parameter('wheel_cmd_send_rate_hz', 20.0)
+        self.declare_parameter('wheel_cmd_send_rate_hz', 30.0)
 
         # Read parameters and store in self.*
         self.port = self.get_parameter('port').get_parameter_value().string_value
@@ -36,6 +36,9 @@ class ESP32Bridge(Node):
         self.last_enc_vel = None
         self.last_enc_reject_warn_time = 0.0
         self.latest_wheel_cmd = None
+        self.wheel_cmd_seq = 0
+        self.wheel_cmd_period = 1.0 / max(self.wheel_cmd_send_rate_hz, 1.0)
+        self.last_wheel_cmd_write_time = 0.0
 
         # Ultrasonic params
         self.declare_parameter('ultra_min_m', 0.02)
@@ -108,9 +111,8 @@ class ESP32Bridge(Node):
             10
         )
 
-        wheel_cmd_period = 1.0 / max(self.wheel_cmd_send_rate_hz, 1.0)
         self.wheel_cmd_timer = self.create_timer(
-            wheel_cmd_period,
+            self.wheel_cmd_period,
             self.send_latest_wheel_cmd,
         )
 
@@ -165,27 +167,41 @@ class ESP32Bridge(Node):
     def write_json_line(self, data: dict, label: str):
         if self.ser is None or not self.ser.is_open:
             self.get_logger().warn(f'Serial not open, cannot send {label}')
-            return
+            return False
 
-        line = json.dumps(data) + '\n'
+        line = json.dumps(data, separators=(',', ':')) + '\n'
         encoded = line.encode('utf-8')
 
         with self.serial_lock:
             try:
                 self.ser.write(encoded)
+                return True
             except serial.SerialException as e:
                 self.get_logger().error(f'Serial write error ({label}): {e}')
                 self.close_serial()
                 self.open_serial_with_retry()
+                return False
 
     def wheel_cmd_callback(self, msg: Float32MultiArray):
-        """Store the latest wheel_cmd; a timer sends it at a controlled rate."""
+        """Store the latest wheel_cmd and opportunistically send it immediately."""
         self.latest_wheel_cmd = [float(x) for x in msg.data[:4]]
+        self.send_latest_wheel_cmd(throttle=True)
 
-    def send_latest_wheel_cmd(self):
+    def send_latest_wheel_cmd(self, throttle=False):
         if self.latest_wheel_cmd is None:
             return
-        self.write_json_line({'wheel_cmd': self.latest_wheel_cmd}, 'wheel_cmd')
+        now = time.monotonic()
+        if throttle and (now - self.last_wheel_cmd_write_time) < self.wheel_cmd_period:
+            return
+        self.wheel_cmd_seq = (self.wheel_cmd_seq + 1) & 0x7fffffff
+        if self.write_json_line(
+            {
+                'wheel_cmd': self.latest_wheel_cmd,
+                'cmd_seq': self.wheel_cmd_seq,
+            },
+            'wheel_cmd',
+        ):
+            self.last_wheel_cmd_write_time = now
 
     def buzzer_callback(self, msg: Float32):
         """Send buzzer_duration to ESP32 as JSON: {"buzzer_duration": sec}"""

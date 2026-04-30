@@ -148,7 +148,7 @@ def analyze_mode(rows, args):
         debug_age = to_float(row.get("debug_age_sec"))
         if debug_age is not None and debug_age > args.max_debug_age_sec:
             continue
-        valid.append((in_place, moving, boost, debug_age))
+        valid.append((row, in_place, moving, boost, debug_age))
 
     if not valid:
         return {
@@ -162,21 +162,29 @@ def analyze_mode(rows, args):
             "wheel_cmd_age": None,
             "cmd_age_ms": None,
             "enc_age_ms": None,
+            "cmd_rx_interval_ms": None,
+            "cmd_seq_gap": None,
+            "usb_parse_errors": None,
+            "usb_line_overflows": None,
         }
 
     fresh_count = len(valid)
-    debug_age_mean = mean(item[3] for item in valid)
+    debug_age_mean = mean(item[4] for item in valid)
     return {
         "n": fresh_count,
         "fresh_pct": pct(fresh_count, len(rows)),
-        "inplace_pct": pct(sum(1 for item in valid if item[0] is not None and item[0] >= 0.5), fresh_count),
-        "moving_pct": pct(sum(1 for item in valid if item[1] is not None and item[1] >= 0.5), fresh_count),
-        "boost_pct": pct(sum(1 for item in valid if item[2] is not None and item[2] >= 0.5), fresh_count),
+        "inplace_pct": pct(sum(1 for item in valid if item[1] is not None and item[1] >= 0.5), fresh_count),
+        "moving_pct": pct(sum(1 for item in valid if item[2] is not None and item[2] >= 0.5), fresh_count),
+        "boost_pct": pct(sum(1 for item in valid if item[3] is not None and item[3] >= 0.5), fresh_count),
         "debug_age": debug_age_mean,
         "cmd_vel_age": mean(to_float(row.get("cmd_vel_age_sec")) for row in rows),
         "wheel_cmd_age": mean(to_float(row.get("wheel_cmd_age_sec")) for row in rows),
-        "cmd_age_ms": mean(to_float(row.get("dbg_cmd_age_ms")) for row in rows),
-        "enc_age_ms": mean(to_float(row.get("dbg_enc_age_ms")) for row in rows),
+        "cmd_age_ms": mean(to_float(item[0].get("dbg_cmd_age_ms")) for item in valid),
+        "enc_age_ms": mean(to_float(item[0].get("dbg_enc_age_ms")) for item in valid),
+        "cmd_rx_interval_ms": mean(to_float(item[0].get("dbg_cmd_rx_interval_ms")) for item in valid),
+        "cmd_seq_gap": mean(to_float(item[0].get("dbg_cmd_seq_gap")) for item in valid),
+        "usb_parse_errors": mean(to_float(item[0].get("dbg_usb_parse_errors")) for item in valid),
+        "usb_line_overflows": mean(to_float(item[0].get("dbg_usb_line_overflows")) for item in valid),
     }
 
 
@@ -280,7 +288,8 @@ def main():
 
     mode_rows = [[
         "test", "seg", "dbg_n", "fresh%", "inplace%", "moving%", "boost%",
-        "cmd_age", "enc_age", "dbg_age", "cmdvel_age", "wheel_age",
+        "cmd_age", "rx_dt", "seq_gap", "parse_err", "overflow",
+        "enc_age", "dbg_age", "cmdvel_age", "wheel_age",
     ]]
     output_rows = [[
         "test", "seg", "wheel", "n", "|cmd|", "enc_along", "enc/cmd",
@@ -310,6 +319,10 @@ def main():
                 fmt(mode["moving_pct"], 1),
                 fmt(mode["boost_pct"], 1),
                 fmt(mode["cmd_age_ms"], 0),
+                fmt(mode["cmd_rx_interval_ms"], 0),
+                fmt(mode["cmd_seq_gap"], 0),
+                fmt(mode["usb_parse_errors"], 0),
+                fmt(mode["usb_line_overflows"], 0),
                 fmt(mode["enc_age_ms"], 0),
                 fmt(mode["debug_age"]),
                 fmt(mode["cmd_vel_age"]),

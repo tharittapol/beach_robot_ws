@@ -125,6 +125,12 @@ class WheelResponseTest(Node):
         fields.extend((
             "dbg_cmd_age_ms",
             "dbg_enc_age_ms",
+            "dbg_cmd_rx_count",
+            "dbg_cmd_rx_interval_ms",
+            "dbg_cmd_seq",
+            "dbg_cmd_seq_gap",
+            "dbg_usb_parse_errors",
+            "dbg_usb_line_overflows",
             "dbg_in_place_turn",
             "dbg_moving_turn",
             "dbg_spin_start_boost",
@@ -172,6 +178,12 @@ class WheelResponseTest(Node):
             "debug_age_sec": self._age_sec(self.latest_debug_stamp, now),
             "dbg_cmd_age_ms": debug.get("cmd_age_ms", ""),
             "dbg_enc_age_ms": debug.get("enc_age_ms", ""),
+            "dbg_cmd_rx_count": debug.get("cmd_rx_count", ""),
+            "dbg_cmd_rx_interval_ms": debug.get("cmd_rx_interval_ms", ""),
+            "dbg_cmd_seq": debug.get("cmd_seq", ""),
+            "dbg_cmd_seq_gap": debug.get("cmd_seq_gap", ""),
+            "dbg_usb_parse_errors": debug.get("usb_parse_errors", ""),
+            "dbg_usb_line_overflows": debug.get("usb_line_overflows", ""),
             "dbg_in_place_turn": debug.get("in_place_turn", ""),
             "dbg_moving_turn": debug.get("moving_turn", ""),
             "dbg_spin_start_boost": debug.get("spin_start_boost", ""),
@@ -242,6 +254,18 @@ class WheelResponseTest(Node):
         for _ in range(max(1, repeat)):
             self.pub_json.publish(msg)
             rclpy.spin_once(self, timeout_sec=0.05)
+
+    def _wait_for_debug(self, timeout_sec):
+        if timeout_sec <= 0.0:
+            return False
+
+        start = time.monotonic()
+        self.latest_debug_stamp = None
+        while rclpy.ok() and (time.monotonic() - start) < timeout_sec:
+            rclpy.spin_once(self, timeout_sec=0.05)
+            if self.latest_debug_stamp is not None:
+                return True
+        return False
 
     def _latest_cmd_vel_or_zero(self):
         if self.latest_cmd_vel is None or self.latest_cmd_vel_stamp is None:
@@ -337,6 +361,13 @@ class WheelResponseTest(Node):
             self._send_esp32_json({"dbg_enable": False}, repeat=5)
         else:
             self._send_esp32_json({"dbg_enable": True, "dbg_rate_ms": self.args.debug_rate_ms}, repeat=5)
+            if self.args.wait_for_debug_sec > 0.0:
+                if self._wait_for_debug(self.args.wait_for_debug_sec):
+                    self.get_logger().info("ESP32 debug stream is active")
+                else:
+                    self.get_logger().warn(
+                        "No ESP32 debug sample received before recording; CSV debug columns may be empty"
+                    )
 
         try:
             self.get_logger().info(f"Writing wheel response CSV: {self.csv_path}")
@@ -454,7 +485,13 @@ def parse_args():
         "--debug-rate-ms",
         type=int,
         default=1000,
-        help="ESP32 debug interval in ms. Keep modest to avoid serial congestion at 115200 baud.",
+        help="ESP32 debug interval in ms. Keep modest to avoid serial congestion.",
+    )
+    parser.add_argument(
+        "--wait-for-debug-sec",
+        type=float,
+        default=2.0,
+        help="After enabling ESP32 debug, wait up to this long for the first sample before recording.",
     )
     parser.add_argument("--no-esp32-debug", action="store_true")
     parser.add_argument("--cmd-vel-topic", default="/cmd_vel")
