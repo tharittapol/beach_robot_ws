@@ -137,6 +137,45 @@ def analyze_segment(rows, args):
     return wheel_stats
 
 
+def analyze_mode(rows, args):
+    valid = []
+    for row in rows:
+        in_place = to_float(row.get("dbg_in_place_turn"))
+        moving = to_float(row.get("dbg_moving_turn"))
+        boost = to_float(row.get("dbg_spin_start_boost"))
+        if in_place is None and moving is None and boost is None:
+            continue
+        debug_age = to_float(row.get("debug_age_sec"))
+        if debug_age is not None and debug_age > args.max_debug_age_sec:
+            continue
+        valid.append((in_place, moving, boost, debug_age))
+
+    if not valid:
+        return {
+            "n": 0,
+            "fresh_pct": None,
+            "inplace_pct": None,
+            "moving_pct": None,
+            "boost_pct": None,
+            "debug_age": None,
+            "cmd_age_ms": None,
+            "enc_age_ms": None,
+        }
+
+    fresh_count = len(valid)
+    debug_age_mean = mean(item[3] for item in valid)
+    return {
+        "n": fresh_count,
+        "fresh_pct": pct(fresh_count, len(rows)),
+        "inplace_pct": pct(sum(1 for item in valid if item[0] is not None and item[0] >= 0.5), fresh_count),
+        "moving_pct": pct(sum(1 for item in valid if item[1] is not None and item[1] >= 0.5), fresh_count),
+        "boost_pct": pct(sum(1 for item in valid if item[2] is not None and item[2] >= 0.5), fresh_count),
+        "debug_age": debug_age_mean,
+        "cmd_age_ms": mean(to_float(row.get("dbg_cmd_age_ms")) for row in rows),
+        "enc_age_ms": mean(to_float(row.get("dbg_enc_age_ms")) for row in rows),
+    }
+
+
 def pair_mean(wheel_stats, wheels, key):
     return mean(wheel_stats[w][key] for w in wheels)
 
@@ -213,6 +252,12 @@ def main():
     parser.add_argument("--warn-signbad-pct", type=float, default=10.0)
     parser.add_argument("--warn-motor-high-u", type=float, default=0.30)
     parser.add_argument("--warn-motor0-pct", type=float, default=50.0)
+    parser.add_argument(
+        "--max-debug-age-sec",
+        type=float,
+        default=0.75,
+        help="Ignore ESP32 debug mode samples older than this when reporting mode percentages.",
+    )
     args = parser.parse_args()
 
     grouped = defaultdict(list)
@@ -229,6 +274,9 @@ def main():
         print("No spin command samples found. Record spin_left/spin_right with wheel_response_test first.")
         return
 
+    mode_rows = [[
+        "test", "seg", "dbg_n", "fresh%", "inplace%", "moving%", "boost%", "cmd_age", "enc_age", "dbg_age",
+    ]]
     output_rows = [[
         "test", "seg", "wheel", "n", "|cmd|", "enc_along", "enc/cmd",
         "err", "|u|", "stall%", "signbad%", "motor0%",
@@ -247,6 +295,19 @@ def main():
 
         for seg_idx, segment in enumerate(segments, start=1):
             stats = analyze_segment(segment, args)
+            mode = analyze_mode(segment, args)
+            mode_rows.append([
+                test,
+                seg_idx,
+                mode["n"],
+                fmt(mode["fresh_pct"], 1),
+                fmt(mode["inplace_pct"], 1),
+                fmt(mode["moving_pct"], 1),
+                fmt(mode["boost_pct"], 1),
+                fmt(mode["cmd_age_ms"], 0),
+                fmt(mode["enc_age_ms"], 0),
+                fmt(mode["debug_age"]),
+            ])
             for wheel in WHEELS:
                 s = stats[wheel]
                 output_rows.append([
@@ -293,7 +354,15 @@ def main():
                 "-",
             ])
             hints.append(hint_for_segment(f"{test} seg {seg_idx}", stats, args))
+            if mode["inplace_pct"] is not None and mode["inplace_pct"] < 80.0:
+                hints.append(
+                    f"{test} seg {seg_idx}: ESP32 in_place_turn only {mode['inplace_pct']:.0f}% "
+                    "of fresh debug samples; check creep-pivot detection before tuning floors"
+                )
 
+    print("Mode:")
+    print_table(mode_rows)
+    print()
     print_table(output_rows)
     print()
     print("Hints:")

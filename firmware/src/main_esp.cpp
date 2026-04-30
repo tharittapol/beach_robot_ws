@@ -30,14 +30,14 @@ static constexpr float U_MAX = 1.0f;
 static constexpr float LOW_SPEED_TARGET_MAX_MPS[WHEEL_COUNT] = { 0.0f, 0.0f, 0.60f, 0.60f };
 static float ACTIVE_U_FLOOR[WHEEL_COUNT] = { 0.0f, 0.0f, 0.008f, 0.008f };
 static constexpr float ACTIVE_FLOOR_DISABLE_ABOVE_TARGET_RATIO = 0.75f;
-static float SPIN_U_FLOOR[WHEEL_COUNT] = { 0.40f, 0.40f, 0.10f, 0.11f };
-static float SPIN_HOLD_U_FLOOR_POS[WHEEL_COUNT] = { 0.36f, 0.36f, 0.06f, 0.07f };
-static float SPIN_HOLD_U_FLOOR_NEG[WHEEL_COUNT] = { 0.34f, 0.34f, 0.04f, 0.05f };
+static float SPIN_U_FLOOR[WHEEL_COUNT] = { 0.40f, 0.40f, 0.14f, 0.15f };
+static float SPIN_HOLD_U_FLOOR_POS[WHEEL_COUNT] = { 0.36f, 0.36f, 0.10f, 0.12f };
+static float SPIN_HOLD_U_FLOOR_NEG[WHEEL_COUNT] = { 0.34f, 0.34f, 0.09f, 0.11f };
 static float TURN_U_FLOOR_POS[WHEEL_COUNT] = { 0.38f, 0.38f, 0.22f, 0.22f };
 static float TURN_U_FLOOR_NEG[WHEEL_COUNT] = { 0.16f, 0.16f, 0.18f, 0.18f };
 static constexpr uint32_t SPIN_START_BOOST_MS = 650;
-static constexpr float SPIN_FLOOR_DISABLE_ABOVE_TARGET_RATIO = 1.50f;
-static constexpr float IN_PLACE_LINEAR_SUM_MAX_MPS = 0.03f;
+static constexpr float SPIN_FLOOR_DISABLE_ABOVE_TARGET_RATIO = 1.75f;
+static constexpr float IN_PLACE_LINEAR_MEAN_MAX_MPS = 0.035f;
 static constexpr float MOVING_TURN_DIFF_MIN_MPS = 0.06f;
 static constexpr float TURN_FLOOR_DISABLE_ABOVE_TARGET_RATIO = 1.25f;
 static constexpr float CONTROL_ENCODER_MAX_MPS[WHEEL_COUNT] = { 2.0f, 2.0f, 2.0f, 2.0f };
@@ -123,10 +123,10 @@ static bool isInPlaceTurnCommand() {
   const bool left_same = (s_fl == s_rl);
   const bool right_same = (s_fr == s_rr);
   const bool sides_opposite = (s_fl == -s_fr);
-  const float linear_sum = v_cmd[0] + v_cmd[1] + v_cmd[2] + v_cmd[3];
+  const float linear_mean = 0.25f * (v_cmd[0] + v_cmd[1] + v_cmd[2] + v_cmd[3]);
 
   return left_same && right_same && sides_opposite &&
-         fabsf(linear_sum) <= IN_PLACE_LINEAR_SUM_MAX_MPS;
+         fabsf(linear_mean) <= IN_PLACE_LINEAR_MEAN_MAX_MPS;
 }
 
 static bool isMovingTurnCommand() {

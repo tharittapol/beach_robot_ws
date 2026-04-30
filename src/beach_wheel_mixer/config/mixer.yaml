@@ -16,10 +16,10 @@ wheel_mps_mixer:
     turn_gain_rear: 0.90
     in_place_linear_threshold: 0.03
     in_place_angular_threshold: 0.05
-    # Soft pivot: left/right sides rotate opposite directions. Increase the
-    # sustained target enough to keep turning after breakaway.
-    turn_gain_front_in_place: 1.25
-    turn_gain_rear_in_place: 0.65
+    # Soft pivot: left/right sides rotate opposite directions. Keep the target
+    # above the drivetrain breakaway speed so PID/floor does not stick-slip.
+    turn_gain_front_in_place: 1.60
+    turn_gain_rear_in_place: 0.85
     # Limit yaw dynamically so inside wheels do not reverse on rolling arcs.
     # Reverse assist overloaded the drivetrain on high-friction ground.
     min_curve_inner_mps: 0.00

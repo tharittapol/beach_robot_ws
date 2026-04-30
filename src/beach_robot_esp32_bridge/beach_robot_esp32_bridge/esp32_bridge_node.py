@@ -23,6 +23,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('imu_frame_id', 'imu_link')
         self.declare_parameter('enc_vel_max_abs_mps', 3.0)
         self.declare_parameter('enc_vel_max_step_mps', 1.0)
+        self.declare_parameter('wheel_cmd_send_rate_hz', 20.0)
 
         # Read parameters and store in self.*
         self.port = self.get_parameter('port').get_parameter_value().string_value
@@ -31,8 +32,10 @@ class ESP32Bridge(Node):
         self.imu_frame_id = self.get_parameter('imu_frame_id').get_parameter_value().string_value
         self.enc_vel_max_abs_mps = float(self.get_parameter('enc_vel_max_abs_mps').value)
         self.enc_vel_max_step_mps = float(self.get_parameter('enc_vel_max_step_mps').value)
+        self.wheel_cmd_send_rate_hz = float(self.get_parameter('wheel_cmd_send_rate_hz').value)
         self.last_enc_vel = None
         self.last_enc_reject_warn_time = 0.0
+        self.latest_wheel_cmd = None
 
         # Ultrasonic params
         self.declare_parameter('ultra_min_m', 0.02)
@@ -105,6 +108,12 @@ class ESP32Bridge(Node):
             10
         )
 
+        wheel_cmd_period = 1.0 / max(self.wheel_cmd_send_rate_hz, 1.0)
+        self.wheel_cmd_timer = self.create_timer(
+            wheel_cmd_period,
+            self.send_latest_wheel_cmd,
+        )
+
         # Try to open serial (with retry)
         self.open_serial_with_retry()
 
@@ -168,8 +177,13 @@ class ESP32Bridge(Node):
                 self.open_serial_with_retry()
 
     def wheel_cmd_callback(self, msg: Float32MultiArray):
-        """Send wheel_cmd to ESP32 as JSON: {"wheel_cmd":[v_fl,v_fr,v_rl,v_rr]}"""
-        self.write_json_line({'wheel_cmd': list(msg.data)}, 'wheel_cmd')
+        """Store the latest wheel_cmd; a timer sends it at a controlled rate."""
+        self.latest_wheel_cmd = [float(x) for x in msg.data[:4]]
+
+    def send_latest_wheel_cmd(self):
+        if self.latest_wheel_cmd is None:
+            return
+        self.write_json_line({'wheel_cmd': self.latest_wheel_cmd}, 'wheel_cmd')
 
     def buzzer_callback(self, msg: Float32):
         """Send buzzer_duration to ESP32 as JSON: {"buzzer_duration": sec}"""

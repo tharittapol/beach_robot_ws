@@ -31,6 +31,11 @@ def generate_launch_description():
             default_value="1.0",
             description="Drop encoder velocity samples with any wheel jump above this speed. <=0 disables."
         ),
+        DeclareLaunchArgument(
+            "wheel_cmd_send_rate_hz",
+            default_value="20.0",
+            description="Rate-limit wheel_cmd serial writes to keep ESP32 telemetry/debug responsive."
+        ),
 
         Node(
             package="beach_robot_esp32_bridge",
@@ -43,6 +48,7 @@ def generate_launch_description():
                 "timeout": LaunchConfiguration("timeout"),
                 "enc_vel_max_abs_mps": LaunchConfiguration("enc_vel_max_abs_mps"),
                 "enc_vel_max_step_mps": LaunchConfiguration("enc_vel_max_step_mps"),
+                "wheel_cmd_send_rate_hz": LaunchConfiguration("wheel_cmd_send_rate_hz"),
             }],
             respawn=True,
             respawn_delay=2.0,

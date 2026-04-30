@@ -364,11 +364,12 @@ class WheelResponseTest(Node):
 
 
 def build_tests(args):
+    spin_linear = args.spin_linear
     all_tests = {
         "forward": (args.forward_speed, 0.0),
         "backward": (-args.forward_speed, 0.0),
-        "spin_left": (0.0, args.spin_rate),
-        "spin_right": (0.0, -args.spin_rate),
+        "spin_left": (spin_linear, args.spin_rate),
+        "spin_right": (spin_linear, -args.spin_rate),
         "curve_left": (args.curve_speed, args.curve_rate),
         "curve_right": (args.curve_speed, -args.curve_rate),
     }
@@ -390,6 +391,12 @@ def parse_args():
     parser.add_argument("--tests", default="forward,backward,spin_left,spin_right,curve_left,curve_right")
     parser.add_argument("--forward-speed", type=float, default=0.17, help="m/s for forward/backward tests.")
     parser.add_argument("--spin-rate", type=float, default=0.20, help="rad/s for spin-in-place tests.")
+    parser.add_argument(
+        "--spin-linear",
+        type=float,
+        default=0.0,
+        help="Small linear.x bias for spin tests. Keep <= mixer in_place_linear_threshold for creep-pivot tests.",
+    )
     parser.add_argument("--curve-speed", type=float, default=0.12, help="m/s for curve tests.")
     parser.add_argument("--curve-rate", type=float, default=0.08, help="rad/s for curve tests.")
     parser.add_argument("--settle-sec", type=float, default=1.0)
