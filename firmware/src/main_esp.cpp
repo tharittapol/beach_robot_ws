@@ -27,8 +27,8 @@ static bool USE_CLOSED_LOOP[WHEEL_COUNT] = { true, true, true, true };
 static constexpr float V_CMD_DEADBAND = 0.005f;
 static constexpr float U_MIN = -1.0f;
 static constexpr float U_MAX = 1.0f;
-static constexpr float LOW_SPEED_TARGET_MAX_MPS[WHEEL_COUNT] = { 0.0f, 0.0f, 0.60f, 0.60f };
-static float ACTIVE_U_FLOOR[WHEEL_COUNT] = { 0.0f, 0.0f, 0.008f, 0.008f };
+static float LOW_SPEED_TARGET_MAX_MPS[WHEEL_COUNT] = { 0.60f, 0.60f, 0.60f, 0.60f };
+static float ACTIVE_U_FLOOR[WHEEL_COUNT] = { 0.22f, 0.22f, 0.06f, 0.06f };
 static constexpr float ACTIVE_FLOOR_DISABLE_ABOVE_TARGET_RATIO = 0.75f;
 static float SPIN_U_FLOOR[WHEEL_COUNT] = { 0.40f, 0.40f, 0.14f, 0.15f };
 static float SPIN_HOLD_U_FLOOR_POS[WHEEL_COUNT] = { 0.36f, 0.36f, 0.10f, 0.12f };
@@ -191,7 +191,10 @@ static float applyDriveFloor(
   if (!validWheelIndex(idx)) return u_cmd;
 
   const float target_mag = fabsf(cmd_target);
-  float floor_u = ACTIVE_U_FLOOR[idx];
+  // Straight joystick driving needs a small crawl floor to break static
+  // friction. During moving turns, only apply floors to the assisted side so
+  // the slow inside side does not get boosted into a straight-drive command.
+  float floor_u = (!moving_turn || moving_turn_floor) ? ACTIVE_U_FLOOR[idx] : 0.0f;
   float disable_ratio = ACTIVE_FLOOR_DISABLE_ABOVE_TARGET_RATIO;
   if (in_place_turn) {
     const float spin_floor =
@@ -299,6 +302,12 @@ static void setActiveUFloor(int idx, float floor_u) {
   if (!validWheelIndex(idx)) return;
   if (!isfinite(floor_u)) return;
   ACTIVE_U_FLOOR[idx] = clampf(floor_u, 0.0f, 1.0f);
+}
+
+static void setLowSpeedTargetMax(int idx, float target_mps) {
+  if (!validWheelIndex(idx)) return;
+  if (!isfinite(target_mps)) return;
+  LOW_SPEED_TARGET_MAX_MPS[idx] = clampf(target_mps, 0.0f, 5.0f);
 }
 
 static void setSpinUFloor(int idx, float floor_u) {
@@ -707,6 +716,13 @@ static void handleJetsonLine(const char *line) {
     }
   }
 
+  if (doc.containsKey("low_speed_target_max_mps")) {
+    JsonArray arr = doc["low_speed_target_max_mps"];
+    for (int i = 0; i < WHEEL_COUNT; ++i) {
+      setLowSpeedTargetMax(i, arr[i] | LOW_SPEED_TARGET_MAX_MPS[i]);
+    }
+  }
+
   if (doc.containsKey("spin_u_floor")) {
     JsonArray arr = doc["spin_u_floor"];
     for (int i = 0; i < WHEEL_COUNT; ++i) {
@@ -903,6 +919,9 @@ static void publishDebug() {
 
   JsonArray active_floor_arr = dbg.createNestedArray("active_u_floor");
   for (int i = 0; i < WHEEL_COUNT; ++i) active_floor_arr.add(safeFloat(ACTIVE_U_FLOOR[i]));
+
+  JsonArray low_speed_max_arr = dbg.createNestedArray("low_speed_target_max_mps");
+  for (int i = 0; i < WHEEL_COUNT; ++i) low_speed_max_arr.add(safeFloat(LOW_SPEED_TARGET_MAX_MPS[i]));
 
   JsonArray spin_floor_arr = dbg.createNestedArray("spin_u_floor");
   for (int i = 0; i < WHEEL_COUNT; ++i) spin_floor_arr.add(safeFloat(SPIN_U_FLOOR[i]));

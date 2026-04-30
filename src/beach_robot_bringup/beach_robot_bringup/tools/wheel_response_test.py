@@ -120,6 +120,7 @@ class WheelResponseTest(Node):
             "dbg_pid_ki",
             "dbg_vmax_mps",
             "dbg_use_closed_loop",
+            "dbg_low_speed_target_max_mps",
         ):
             fields.extend(f"{prefix}_{wheel}" for wheel in WHEEL_NAMES)
         fields.extend((
@@ -213,6 +214,7 @@ class WheelResponseTest(Node):
         self._add_array(row, "dbg_pid_ki", debug.get("pid_ki"))
         self._add_array(row, "dbg_vmax_mps", debug.get("vmax_mps"))
         self._add_array(row, "dbg_use_closed_loop", debug.get("use_closed_loop"))
+        self._add_array(row, "dbg_low_speed_target_max_mps", debug.get("low_speed_target_max_mps"))
 
         self.writer.writerow(row)
         self.csv_file.flush()

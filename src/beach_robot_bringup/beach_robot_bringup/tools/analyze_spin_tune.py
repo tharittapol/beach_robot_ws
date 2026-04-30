@@ -26,6 +26,17 @@ def mean(values):
     return sum(vals) / len(vals)
 
 
+def counter_delta(values):
+    vals = [v for v in values if v is not None]
+    if len(vals) < 2:
+        return None
+    first = vals[0]
+    last = vals[-1]
+    if last >= first:
+        return last - first
+    return last
+
+
 def pct(count, total):
     if total <= 0:
         return None
@@ -163,9 +174,9 @@ def analyze_mode(rows, args):
             "cmd_age_ms": None,
             "enc_age_ms": None,
             "cmd_rx_interval_ms": None,
-            "cmd_seq_gap": None,
-            "usb_parse_errors": None,
-            "usb_line_overflows": None,
+            "cmd_seq_gap_delta": None,
+            "usb_parse_errors_delta": None,
+            "usb_line_overflows_delta": None,
         }
 
     fresh_count = len(valid)
@@ -182,9 +193,9 @@ def analyze_mode(rows, args):
         "cmd_age_ms": mean(to_float(item[0].get("dbg_cmd_age_ms")) for item in valid),
         "enc_age_ms": mean(to_float(item[0].get("dbg_enc_age_ms")) for item in valid),
         "cmd_rx_interval_ms": mean(to_float(item[0].get("dbg_cmd_rx_interval_ms")) for item in valid),
-        "cmd_seq_gap": mean(to_float(item[0].get("dbg_cmd_seq_gap")) for item in valid),
-        "usb_parse_errors": mean(to_float(item[0].get("dbg_usb_parse_errors")) for item in valid),
-        "usb_line_overflows": mean(to_float(item[0].get("dbg_usb_line_overflows")) for item in valid),
+        "cmd_seq_gap_delta": counter_delta(to_float(item[0].get("dbg_cmd_seq_gap")) for item in valid),
+        "usb_parse_errors_delta": counter_delta(to_float(item[0].get("dbg_usb_parse_errors")) for item in valid),
+        "usb_line_overflows_delta": counter_delta(to_float(item[0].get("dbg_usb_line_overflows")) for item in valid),
     }
 
 
@@ -288,7 +299,7 @@ def main():
 
     mode_rows = [[
         "test", "seg", "dbg_n", "fresh%", "inplace%", "moving%", "boost%",
-        "cmd_age", "rx_dt", "seq_gap", "parse_err", "overflow",
+        "cmd_age", "rx_dt", "seq_gap_d", "parse_d", "overflow_d",
         "enc_age", "dbg_age", "cmdvel_age", "wheel_age",
     ]]
     output_rows = [[
@@ -320,9 +331,9 @@ def main():
                 fmt(mode["boost_pct"], 1),
                 fmt(mode["cmd_age_ms"], 0),
                 fmt(mode["cmd_rx_interval_ms"], 0),
-                fmt(mode["cmd_seq_gap"], 0),
-                fmt(mode["usb_parse_errors"], 0),
-                fmt(mode["usb_line_overflows"], 0),
+                fmt(mode["cmd_seq_gap_delta"], 0),
+                fmt(mode["usb_parse_errors_delta"], 0),
+                fmt(mode["usb_line_overflows_delta"], 0),
                 fmt(mode["enc_age_ms"], 0),
                 fmt(mode["debug_age"]),
                 fmt(mode["cmd_vel_age"]),
