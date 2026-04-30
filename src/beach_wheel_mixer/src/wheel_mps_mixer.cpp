@@ -26,6 +26,8 @@ public:
     turn_gain_front_in_place_ = this->declare_parameter<double>("turn_gain_front_in_place", 1.0);
     turn_gain_rear_in_place_  = this->declare_parameter<double>("turn_gain_rear_in_place",  1.0);
     in_place_linear_bias_ = this->declare_parameter<double>("in_place_linear_bias", 0.0);
+    in_place_linear_bias_left_ = this->declare_parameter<double>("in_place_linear_bias_left", in_place_linear_bias_);
+    in_place_linear_bias_right_ = this->declare_parameter<double>("in_place_linear_bias_right", in_place_linear_bias_);
     min_curve_inner_mps_ = this->declare_parameter<double>("min_curve_inner_mps", 0.02);
     min_turn_radius_ = this->declare_parameter<double>("min_turn_radius", 0.85);
     rear_yaw_relief_ = this->declare_parameter<double>("rear_yaw_relief", 0.35);
@@ -85,10 +87,11 @@ public:
 
     RCLCPP_INFO(
       this->get_logger(),
-      "wheel_mps_mixer in=%s out=%s front_track=%.3f rear_track=%.3f wheelbase=%.3f min_turn_radius=%.2f rear_yaw_relief=%.2f max_v=%.2f max_w=%.2f accel=%.2f decel=%.2f in_place_lin<=%.2f in_place_ang>=%.2f in_place_bias=%.3f",
+      "wheel_mps_mixer in=%s out=%s front_track=%.3f rear_track=%.3f wheelbase=%.3f min_turn_radius=%.2f rear_yaw_relief=%.2f max_v=%.2f max_w=%.2f accel=%.2f decel=%.2f in_place_lin<=%.2f in_place_ang>=%.2f in_place_bias=%.3f left=%.3f right=%.3f",
       input_topic_.c_str(), output_topic_.c_str(), front_track_width_, rear_track_width_,
       wheelbase_, min_turn_radius_, rear_yaw_relief_, max_v_, max_w_, max_accel_mps2_,
-      max_decel_mps2_, in_place_linear_threshold_, in_place_angular_threshold_, in_place_linear_bias_);
+      max_decel_mps2_, in_place_linear_threshold_, in_place_angular_threshold_, in_place_linear_bias_,
+      in_place_linear_bias_left_, in_place_linear_bias_right_);
   }
 
 private:
@@ -194,8 +197,11 @@ private:
       std::abs(requested_w) >= in_place_angular_threshold_;
 
     double v = requested_v;
-    if (in_place_turn && in_place_linear_bias_ > 0.0 && std::abs(v) < in_place_linear_bias_) {
-      v = std::copysign(in_place_linear_bias_, v);
+    const double active_in_place_bias = requested_w >= 0.0
+      ? in_place_linear_bias_left_
+      : in_place_linear_bias_right_;
+    if (in_place_turn && active_in_place_bias > 0.0 && std::abs(v) < active_in_place_bias) {
+      v = std::copysign(active_in_place_bias, v);
     }
 
     const double radius_limited_w = in_place_turn
@@ -277,7 +283,7 @@ private:
   double turn_gain_front_, turn_gain_rear_;
   double in_place_linear_threshold_, in_place_angular_threshold_;
   double turn_gain_front_in_place_, turn_gain_rear_in_place_;
-  double in_place_linear_bias_;
+  double in_place_linear_bias_, in_place_linear_bias_left_, in_place_linear_bias_right_;
   double min_curve_inner_mps_;
   double min_turn_radius_, rear_yaw_relief_;
   double front_left_scale_, front_right_scale_, rear_left_scale_, rear_right_scale_;
