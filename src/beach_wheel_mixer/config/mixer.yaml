@@ -13,7 +13,7 @@ wheel_mps_mixer:
     # Start from the smoother indoor baseline, then trim for the higher-friction
     # outdoor surface.
     turn_gain_front: 2.45
-    turn_gain_rear: 0.90
+    turn_gain_rear: 1.45
     in_place_linear_threshold: 0.03
     in_place_angular_threshold: 0.03
     # Soft pivot: left/right sides rotate opposite directions. Keep the target
@@ -25,14 +25,14 @@ wheel_mps_mixer:
     in_place_linear_bias: 0.03
     in_place_linear_bias_left: 0.08
     in_place_linear_bias_right: 0.08
-    # Limit yaw dynamically so inside wheels do not reverse on rolling arcs.
-    # Reverse assist overloaded the drivetrain on high-friction ground.
-    min_curve_inner_mps: 0.00
+    # Limit yaw dynamically while allowing a small reverse/brake assist on
+    # rolling arcs. The inside wheels were coasting when clamped at zero.
+    min_curve_inner_mps: -0.03
     # Rolling curves only: cap curvature and reduce rear yaw as the requested
     # radius gets tight, so the rear round wheels follow instead of drifting or
     # tearing away from the front tracked section.
-    min_turn_radius: 0.85
-    rear_yaw_relief: 0.35
+    min_turn_radius: 0.65
+    rear_yaw_relief: 0.15
 
     front_left_scale: 1.0
     front_right_scale: 1.0
