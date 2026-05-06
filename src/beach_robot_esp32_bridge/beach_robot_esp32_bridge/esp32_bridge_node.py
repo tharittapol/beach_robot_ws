@@ -5,6 +5,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from std_msgs.msg import Float32MultiArray, Float32, Bool, String
 from sensor_msgs.msg import Imu, Range
@@ -25,6 +26,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('enc_vel_max_step_mps', 1.0)
         self.declare_parameter('wheel_cmd_send_rate_hz', 30.0)
         self.declare_parameter('wheel_cmd_stale_timeout_sec', 0.5)
+        self.declare_parameter('publish_raw_json', False)
 
         # Read parameters and store in self.*
         self.port = self.get_parameter('port').get_parameter_value().string_value
@@ -35,6 +37,7 @@ class ESP32Bridge(Node):
         self.enc_vel_max_step_mps = float(self.get_parameter('enc_vel_max_step_mps').value)
         self.wheel_cmd_send_rate_hz = float(self.get_parameter('wheel_cmd_send_rate_hz').value)
         self.wheel_cmd_stale_timeout_sec = float(self.get_parameter('wheel_cmd_stale_timeout_sec').value)
+        self.publish_raw_json_enabled = bool(self.get_parameter('publish_raw_json').value)
         self.last_enc_vel = None
         self.last_enc_reject_warn_time = 0.0
         self.latest_wheel_cmd = None
@@ -67,6 +70,11 @@ class ESP32Bridge(Node):
         self.serial_lock = threading.RLock()
 
         # Publishers
+        debug_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+        )
         self.pub_enc_vel = self.create_publisher(
             Float32MultiArray,
             'enc_vel',
@@ -80,12 +88,12 @@ class ESP32Bridge(Node):
         self.pub_esp32_debug = self.create_publisher(
             String,
             'esp32/debug',
-            10
+            debug_qos
         )
         self.pub_esp32_raw_json = self.create_publisher(
             String,
             'esp32/raw_json',
-            10
+            debug_qos
         )
 
         # Subscribers
@@ -282,7 +290,8 @@ class ESP32Bridge(Node):
                 self.get_logger().warn(f'Invalid JSON from ESP32: {e}')
                 continue
 
-            self.publish_raw_json(text)
+            if self.publish_raw_json_enabled:
+                self.publish_raw_json(text)
 
             # Info messages
             if 'info' in data:

@@ -275,7 +275,7 @@ struct LineReader {
 static LineReader lr_usb;
 static LineReader lr_enc;
 
-static void publishDebug();
+static void publishDebug(bool full = false);
 
 static void setPidGains(int idx, float kp, float ki, float kd) {
   if (!validWheelIndex(idx)) return;
@@ -472,7 +472,7 @@ static bool handleTextCmd(const char *line) {
   }
 
   if (strcmp(line, "STATUS") == 0) {
-    publishDebug();
+    publishDebug(true);
     return true;
   }
 
@@ -859,12 +859,12 @@ static void publishTelemetry() {
   Serial.println();
 }
 
-static void publishDebug() {
+static void publishDebug(bool full) {
   const uint32_t now_ms = millis();
-  const ImuData imu_vals = get_imu_data();
 
   StaticJsonDocument<4096> doc;
   JsonObject dbg = doc.createNestedObject("debug");
+  dbg["full"] = full ? 1 : 0;
 
   JsonArray cmd_arr = dbg.createNestedArray("wheel_cmd");
   for (int i = 0; i < WHEEL_COUNT; ++i) cmd_arr.add(safeFloat(v_cmd[i]));
@@ -887,62 +887,64 @@ static void publishDebug() {
   JsonArray out_arr = dbg.createNestedArray("motor_u");
   for (int i = 0; i < WHEEL_COUNT; ++i) out_arr.add(safeFloat(u_send[i]));
 
-  JsonArray kp_arr = dbg.createNestedArray("pid_kp");
-  for (int i = 0; i < WHEEL_COUNT; ++i) kp_arr.add(safeFloat(PID_KP[i]));
+  if (full) {
+    JsonArray kp_arr = dbg.createNestedArray("pid_kp");
+    for (int i = 0; i < WHEEL_COUNT; ++i) kp_arr.add(safeFloat(PID_KP[i]));
 
-  JsonArray ki_arr = dbg.createNestedArray("pid_ki");
-  for (int i = 0; i < WHEEL_COUNT; ++i) ki_arr.add(safeFloat(PID_KI[i]));
+    JsonArray ki_arr = dbg.createNestedArray("pid_ki");
+    for (int i = 0; i < WHEEL_COUNT; ++i) ki_arr.add(safeFloat(PID_KI[i]));
 
-  JsonArray kd_arr = dbg.createNestedArray("pid_kd");
-  for (int i = 0; i < WHEEL_COUNT; ++i) kd_arr.add(safeFloat(PID_KD[i]));
+    JsonArray kd_arr = dbg.createNestedArray("pid_kd");
+    for (int i = 0; i < WHEEL_COUNT; ++i) kd_arr.add(safeFloat(PID_KD[i]));
 
-  JsonArray vmax_arr = dbg.createNestedArray("vmax_mps");
-  for (int i = 0; i < WHEEL_COUNT; ++i) vmax_arr.add(safeFloat(V_MAX_MPS[i]));
+    JsonArray vmax_arr = dbg.createNestedArray("vmax_mps");
+    for (int i = 0; i < WHEEL_COUNT; ++i) vmax_arr.add(safeFloat(V_MAX_MPS[i]));
 
-  JsonArray loop_arr = dbg.createNestedArray("use_closed_loop");
-  for (int i = 0; i < WHEEL_COUNT; ++i) loop_arr.add(USE_CLOSED_LOOP[i] ? 1 : 0);
+    JsonArray loop_arr = dbg.createNestedArray("use_closed_loop");
+    for (int i = 0; i < WHEEL_COUNT; ++i) loop_arr.add(USE_CLOSED_LOOP[i] ? 1 : 0);
 
-  JsonArray enc_sign_arr = dbg.createNestedArray("enc_sign");
-  for (int i = 0; i < WHEEL_COUNT; ++i) enc_sign_arr.add(ENC_SIGN[i]);
+    JsonArray enc_sign_arr = dbg.createNestedArray("enc_sign");
+    for (int i = 0; i < WHEEL_COUNT; ++i) enc_sign_arr.add(ENC_SIGN[i]);
 
-  JsonArray motor_sign_arr = dbg.createNestedArray("motor_sign");
-  for (int i = 0; i < WHEEL_COUNT; ++i) motor_sign_arr.add(MOTOR_SIGN[i]);
+    JsonArray motor_sign_arr = dbg.createNestedArray("motor_sign");
+    for (int i = 0; i < WHEEL_COUNT; ++i) motor_sign_arr.add(MOTOR_SIGN[i]);
 
-  JsonArray pwm_start_arr = dbg.createNestedArray("pwm_start");
-  for (int i = 0; i < WHEEL_COUNT; ++i) pwm_start_arr.add(get_motor_pwm_start(i));
+    JsonArray pwm_start_arr = dbg.createNestedArray("pwm_start");
+    for (int i = 0; i < WHEEL_COUNT; ++i) pwm_start_arr.add(get_motor_pwm_start(i));
 
-  JsonArray pwm_hold_arr = dbg.createNestedArray("pwm_hold");
-  for (int i = 0; i < WHEEL_COUNT; ++i) pwm_hold_arr.add(get_motor_pwm_hold(i));
+    JsonArray pwm_hold_arr = dbg.createNestedArray("pwm_hold");
+    for (int i = 0; i < WHEEL_COUNT; ++i) pwm_hold_arr.add(get_motor_pwm_hold(i));
 
-  JsonArray motor_deadband_arr = dbg.createNestedArray("motor_u_deadband");
-  for (int i = 0; i < WHEEL_COUNT; ++i) motor_deadband_arr.add(safeFloat(get_motor_u_deadband(i)));
+    JsonArray motor_deadband_arr = dbg.createNestedArray("motor_u_deadband");
+    for (int i = 0; i < WHEEL_COUNT; ++i) motor_deadband_arr.add(safeFloat(get_motor_u_deadband(i)));
 
-  JsonArray active_floor_arr = dbg.createNestedArray("active_u_floor");
-  for (int i = 0; i < WHEEL_COUNT; ++i) active_floor_arr.add(safeFloat(ACTIVE_U_FLOOR[i]));
+    JsonArray active_floor_arr = dbg.createNestedArray("active_u_floor");
+    for (int i = 0; i < WHEEL_COUNT; ++i) active_floor_arr.add(safeFloat(ACTIVE_U_FLOOR[i]));
 
-  JsonArray low_speed_max_arr = dbg.createNestedArray("low_speed_target_max_mps");
-  for (int i = 0; i < WHEEL_COUNT; ++i) low_speed_max_arr.add(safeFloat(LOW_SPEED_TARGET_MAX_MPS[i]));
+    JsonArray low_speed_max_arr = dbg.createNestedArray("low_speed_target_max_mps");
+    for (int i = 0; i < WHEEL_COUNT; ++i) low_speed_max_arr.add(safeFloat(LOW_SPEED_TARGET_MAX_MPS[i]));
 
-  JsonArray spin_floor_arr = dbg.createNestedArray("spin_u_floor");
-  for (int i = 0; i < WHEEL_COUNT; ++i) spin_floor_arr.add(safeFloat(SPIN_U_FLOOR[i]));
+    JsonArray spin_floor_arr = dbg.createNestedArray("spin_u_floor");
+    for (int i = 0; i < WHEEL_COUNT; ++i) spin_floor_arr.add(safeFloat(SPIN_U_FLOOR[i]));
 
-  JsonArray spin_hold_floor_arr = dbg.createNestedArray("spin_hold_u_floor");
-  for (int i = 0; i < WHEEL_COUNT; ++i) spin_hold_floor_arr.add(safeFloat(SPIN_HOLD_U_FLOOR_POS[i]));
+    JsonArray spin_hold_floor_arr = dbg.createNestedArray("spin_hold_u_floor");
+    for (int i = 0; i < WHEEL_COUNT; ++i) spin_hold_floor_arr.add(safeFloat(SPIN_HOLD_U_FLOOR_POS[i]));
 
-  JsonArray spin_hold_floor_pos_arr = dbg.createNestedArray("spin_hold_u_floor_pos");
-  for (int i = 0; i < WHEEL_COUNT; ++i) spin_hold_floor_pos_arr.add(safeFloat(SPIN_HOLD_U_FLOOR_POS[i]));
+    JsonArray spin_hold_floor_pos_arr = dbg.createNestedArray("spin_hold_u_floor_pos");
+    for (int i = 0; i < WHEEL_COUNT; ++i) spin_hold_floor_pos_arr.add(safeFloat(SPIN_HOLD_U_FLOOR_POS[i]));
 
-  JsonArray spin_hold_floor_neg_arr = dbg.createNestedArray("spin_hold_u_floor_neg");
-  for (int i = 0; i < WHEEL_COUNT; ++i) spin_hold_floor_neg_arr.add(safeFloat(SPIN_HOLD_U_FLOOR_NEG[i]));
+    JsonArray spin_hold_floor_neg_arr = dbg.createNestedArray("spin_hold_u_floor_neg");
+    for (int i = 0; i < WHEEL_COUNT; ++i) spin_hold_floor_neg_arr.add(safeFloat(SPIN_HOLD_U_FLOOR_NEG[i]));
 
-  JsonArray turn_floor_arr = dbg.createNestedArray("turn_u_floor");
-  for (int i = 0; i < WHEEL_COUNT; ++i) turn_floor_arr.add(safeFloat(TURN_U_FLOOR_POS[i]));
+    JsonArray turn_floor_arr = dbg.createNestedArray("turn_u_floor");
+    for (int i = 0; i < WHEEL_COUNT; ++i) turn_floor_arr.add(safeFloat(TURN_U_FLOOR_POS[i]));
 
-  JsonArray turn_floor_pos_arr = dbg.createNestedArray("turn_u_floor_pos");
-  for (int i = 0; i < WHEEL_COUNT; ++i) turn_floor_pos_arr.add(safeFloat(TURN_U_FLOOR_POS[i]));
+    JsonArray turn_floor_pos_arr = dbg.createNestedArray("turn_u_floor_pos");
+    for (int i = 0; i < WHEEL_COUNT; ++i) turn_floor_pos_arr.add(safeFloat(TURN_U_FLOOR_POS[i]));
 
-  JsonArray turn_floor_neg_arr = dbg.createNestedArray("turn_u_floor_neg");
-  for (int i = 0; i < WHEEL_COUNT; ++i) turn_floor_neg_arr.add(safeFloat(TURN_U_FLOOR_NEG[i]));
+    JsonArray turn_floor_neg_arr = dbg.createNestedArray("turn_u_floor_neg");
+    for (int i = 0; i < WHEEL_COUNT; ++i) turn_floor_neg_arr.add(safeFloat(TURN_U_FLOOR_NEG[i]));
+  }
 
   dbg["cmd_age_ms"] = wheel_test.active ? 0 : (now_ms - last_cmd_ms);
   dbg["enc_age_ms"] = now_ms - last_enc_ms;
@@ -961,11 +963,14 @@ static void publishDebug() {
   dbg["imu_ok"] = imu_is_ready() ? 1 : 0;
   dbg["vibration_enable"] = get_vibration_state() ? 1 : 0;
 
-  JsonArray q_arr = dbg.createNestedArray("imu_quat");
-  q_arr.add(safeFloat(imu_vals.qx));
-  q_arr.add(safeFloat(imu_vals.qy));
-  q_arr.add(safeFloat(imu_vals.qz));
-  q_arr.add(safeFloat(imu_vals.qw));
+  if (full) {
+    const ImuData imu_vals = get_imu_data();
+    JsonArray q_arr = dbg.createNestedArray("imu_quat");
+    q_arr.add(safeFloat(imu_vals.qx));
+    q_arr.add(safeFloat(imu_vals.qy));
+    q_arr.add(safeFloat(imu_vals.qz));
+    q_arr.add(safeFloat(imu_vals.qw));
+  }
 
   JsonObject test_obj = dbg.createNestedObject("wheel_test");
   test_obj["active"] = wheel_test.active ? 1 : 0;

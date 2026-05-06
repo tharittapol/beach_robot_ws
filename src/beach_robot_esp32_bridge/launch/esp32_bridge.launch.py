@@ -41,6 +41,11 @@ def generate_launch_description():
             default_value="0.5",
             description="Send zero wheel_cmd when no fresh /wheel_cmd has arrived within this time."
         ),
+        DeclareLaunchArgument(
+            "publish_raw_json",
+            default_value="false",
+            description="Publish every raw ESP32 JSON line. Keep false while driving to avoid debug backpressure."
+        ),
 
         Node(
             package="beach_robot_esp32_bridge",
@@ -55,6 +60,7 @@ def generate_launch_description():
                 "enc_vel_max_step_mps": LaunchConfiguration("enc_vel_max_step_mps"),
                 "wheel_cmd_send_rate_hz": LaunchConfiguration("wheel_cmd_send_rate_hz"),
                 "wheel_cmd_stale_timeout_sec": LaunchConfiguration("wheel_cmd_stale_timeout_sec"),
+                "publish_raw_json": LaunchConfiguration("publish_raw_json"),
             }],
             respawn=True,
             respawn_delay=2.0,

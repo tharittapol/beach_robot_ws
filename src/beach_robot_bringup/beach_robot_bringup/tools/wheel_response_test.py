@@ -8,6 +8,7 @@ from pathlib import Path
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
+from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Float32MultiArray, String
 
 
@@ -33,6 +34,11 @@ class WheelResponseTest(Node):
         self.pub_cmd = self.create_publisher(Twist, args.cmd_vel_topic, 10)
         self.pub_wheel_cmd = self.create_publisher(Float32MultiArray, args.wheel_cmd_topic, 10)
         self.pub_json = self.create_publisher(String, args.esp32_json_cmd_topic, 10)
+        debug_qos = QoSProfile(
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+        )
         self.create_subscription(
             Twist,
             args.cmd_vel_topic,
@@ -55,7 +61,7 @@ class WheelResponseTest(Node):
             String,
             args.esp32_debug_topic,
             self._debug_cb,
-            50,
+            debug_qos,
         )
 
         self.out_dir = Path(args.out_dir).expanduser()
