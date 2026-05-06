@@ -113,7 +113,7 @@ class ESP32Bridge(Node):
 
         self.wheel_cmd_timer = self.create_timer(
             self.wheel_cmd_period,
-            self.send_latest_wheel_cmd,
+            lambda: self.send_latest_wheel_cmd(throttle=True),
         )
 
         # Try to open serial (with retry)

@@ -39,6 +39,8 @@ def generate_launch_description():
     joy_device = LaunchConfiguration('joy_device')
     max_linear = LaunchConfiguration('max_linear')
     max_angular = LaunchConfiguration('max_angular')
+    axis_linear = LaunchConfiguration('axis_linear')
+    axis_angular = LaunchConfiguration('axis_angular')
 
     mixer_params_file = LaunchConfiguration('mixer_params_file')
     linear_scale = LaunchConfiguration('linear_scale')
@@ -69,6 +71,8 @@ def generate_launch_description():
         DeclareLaunchArgument('joy_device', default_value='/dev/input/js_joy'),
         DeclareLaunchArgument('max_linear', default_value='0.17'),
         DeclareLaunchArgument('max_angular', default_value='0.30'),
+        DeclareLaunchArgument('axis_linear', default_value='1'),
+        DeclareLaunchArgument('axis_angular', default_value='0'),
 
         DeclareLaunchArgument(
             'mixer_params_file',
@@ -126,6 +130,8 @@ def generate_launch_description():
                 'joy_device': joy_device,
                 'max_linear': max_linear,
                 'max_angular': max_angular,
+                'axis_linear': axis_linear,
+                'axis_angular': axis_angular,
             },
             condition=IfCondition(use_teleop),
         ),

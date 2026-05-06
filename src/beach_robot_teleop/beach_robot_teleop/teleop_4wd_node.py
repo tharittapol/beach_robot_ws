@@ -35,6 +35,9 @@ class Teleop4WDSkid(Node):
         self.declare_parameter('angular_slew_rate', 0.90)
         self.declare_parameter('linear_decel_rate', 3.0)
         self.declare_parameter('angular_decel_rate', 4.0)
+        self.declare_parameter('spin_snap_enabled', True)
+        self.declare_parameter('spin_snap_angular_min', 0.25)
+        self.declare_parameter('spin_snap_linear_ratio', 0.45)
 
         # Deadman (LB)
         self.declare_parameter('enable_button', 4)
@@ -71,6 +74,9 @@ class Teleop4WDSkid(Node):
         self.angular_slew_rate = float(self.get_parameter('angular_slew_rate').value)
         self.linear_decel_rate = float(self.get_parameter('linear_decel_rate').value)
         self.angular_decel_rate = float(self.get_parameter('angular_decel_rate').value)
+        self.spin_snap_enabled = bool(self.get_parameter('spin_snap_enabled').value)
+        self.spin_snap_angular_min = float(self.get_parameter('spin_snap_angular_min').value)
+        self.spin_snap_linear_ratio = float(self.get_parameter('spin_snap_linear_ratio').value)
 
         self.enable_button = int(self.get_parameter('enable_button').value)
 
@@ -215,6 +221,12 @@ class Teleop4WDSkid(Node):
         raw_ang = self._clamp(raw_ang, -1.0, 1.0)
         raw_lin = self._shape_axis(raw_lin, self.expo_linear)
         raw_ang = self._shape_axis(raw_ang, self.expo_angular)
+        if (
+            self.spin_snap_enabled and
+            abs(raw_ang) >= self.spin_snap_angular_min and
+            abs(raw_lin) <= abs(raw_ang) * self.spin_snap_linear_ratio
+        ):
+            raw_lin = 0.0
 
         # -------- Read buttons --------
         enable_pressed = get_button(self.enable_button)

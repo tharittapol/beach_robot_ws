@@ -8,6 +8,8 @@ def generate_launch_description():
     joy_device = LaunchConfiguration('joy_device')
     max_linear = LaunchConfiguration('max_linear')
     max_angular = LaunchConfiguration('max_angular')
+    axis_linear = LaunchConfiguration('axis_linear')
+    axis_angular = LaunchConfiguration('axis_angular')
 
     return LaunchDescription([
         DeclareLaunchArgument(
@@ -24,6 +26,16 @@ def generate_launch_description():
             'max_angular',
             default_value='0.30',
             description='Maximum manual angular speed in rad/s.',
+        ),
+        DeclareLaunchArgument(
+            'axis_linear',
+            default_value='1',
+            description='Joystick axis for linear.x. F710/XInput left stick Y is usually 1.',
+        ),
+        DeclareLaunchArgument(
+            'axis_angular',
+            default_value='0',
+            description='Joystick axis for angular.z. F710/XInput left stick X is usually 0.',
         ),
 
         # joy node (must install joy package first: sudo apt install ros-<distro>-joy)
@@ -49,9 +61,9 @@ def generate_launch_description():
                 'max_linear': max_linear,
                 'max_angular': max_angular,
 
-                # your mapping (F710 left stick)
-                'axis_linear': 1,     # left stick Y
-                'axis_angular': 0,    # left stick X
+                # F710/XInput default: left stick Y drives, left stick X rotates.
+                'axis_linear': axis_linear,
+                'axis_angular': axis_angular,
                 'scale_linear': 1.0,
                 'scale_angular': 1.0,
 
@@ -67,6 +79,9 @@ def generate_launch_description():
                 'angular_slew_rate': 0.60,
                 'linear_decel_rate': 3.0,
                 'angular_decel_rate': 4.0,
+                'spin_snap_enabled': True,
+                'spin_snap_angular_min': 0.25,
+                'spin_snap_linear_ratio': 0.45,
 
                 'cmd_vel_out': '/cmd_vel',
             }]
