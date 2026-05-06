@@ -11,12 +11,12 @@ ekf_local:
     base_link_frame: base_link
     world_frame: odom
 
-    # Turn off VX because it's not robust when the wheels are spinning/on sand/slippery surfaces.
-    # Turn off yaw, Vyaw because it might interfere, and watch out for drift.
+    # Field-tested local odom: use wheel longitudinal velocity and let the IMU
+    # own yaw. Wheel-only yaw drifts during straight driving on this chassis.
     odom0: wheel/odom
-    odom0_config: [true,  true,  false,
+    odom0_config: [false, false, false,
                    false, false, false,
-                   false,  false, false,
+                   true,  false, false,
                    false, false, false,
                    false, false, false]
     # x, y, z,
@@ -24,6 +24,7 @@ ekf_local:
     # vx, vy, vz,
     # vroll, vpitch, vyaw,
     # ax, ay, az
+    odom0_queue_size: 10
     odom0_differential: false
     odom0_relative: false
 
@@ -31,8 +32,9 @@ ekf_local:
     imu0_config: [false, false, false,
                   false, false, true,
                   false, false, false,
-                  false, false, true,
-                  true,  true,  false]
+                  false, false, false,
+                  false, false, false]
+    imu0_queue_size: 10
     imu0_differential: false
-    imu0_relative: false
+    imu0_relative: true
     imu0_remove_gravitational_acceleration: false

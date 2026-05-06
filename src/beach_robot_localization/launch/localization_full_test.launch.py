@@ -66,7 +66,7 @@ def generate_launch_description():
         DeclareLaunchArgument('enc_vel_max_step_mps', default_value='1.0'),
         DeclareLaunchArgument(
             'wheel_cmd_send_rate_hz',
-            default_value='30.0',
+            default_value='20.0',
             description='Rate-limit wheel_cmd serial writes from the ESP32 bridge.',
         ),
         DeclareLaunchArgument(
@@ -92,8 +92,8 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'linear_scale',
-            default_value='1.0',
-            description='Wheel odometry linear scale. Start neutral for no-spin arc tests.',
+            default_value='1.53',
+            description='Wheel odometry linear scale from 3 m field validation.',
         ),
         DeclareLaunchArgument(
             'angular_scale',
