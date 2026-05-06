@@ -35,6 +35,7 @@ def generate_launch_description():
     enc_vel_max_abs_mps = LaunchConfiguration('enc_vel_max_abs_mps')
     enc_vel_max_step_mps = LaunchConfiguration('enc_vel_max_step_mps')
     wheel_cmd_send_rate_hz = LaunchConfiguration('wheel_cmd_send_rate_hz')
+    wheel_cmd_stale_timeout_sec = LaunchConfiguration('wheel_cmd_stale_timeout_sec')
 
     joy_device = LaunchConfiguration('joy_device')
     max_linear = LaunchConfiguration('max_linear')
@@ -66,6 +67,11 @@ def generate_launch_description():
             'wheel_cmd_send_rate_hz',
             default_value='30.0',
             description='Rate-limit wheel_cmd serial writes from the ESP32 bridge.',
+        ),
+        DeclareLaunchArgument(
+            'wheel_cmd_stale_timeout_sec',
+            default_value='0.5',
+            description='Send zero wheel_cmd if the mixer stops publishing fresh wheel commands.',
         ),
 
         DeclareLaunchArgument('joy_device', default_value='/dev/input/js_joy'),
@@ -119,6 +125,7 @@ def generate_launch_description():
                 'enc_vel_max_abs_mps': enc_vel_max_abs_mps,
                 'enc_vel_max_step_mps': enc_vel_max_step_mps,
                 'wheel_cmd_send_rate_hz': wheel_cmd_send_rate_hz,
+                'wheel_cmd_stale_timeout_sec': wheel_cmd_stale_timeout_sec,
             },
             condition=IfCondition(use_esp32),
         ),

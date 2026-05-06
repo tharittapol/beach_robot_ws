@@ -24,6 +24,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('enc_vel_max_abs_mps', 3.0)
         self.declare_parameter('enc_vel_max_step_mps', 1.0)
         self.declare_parameter('wheel_cmd_send_rate_hz', 30.0)
+        self.declare_parameter('wheel_cmd_stale_timeout_sec', 0.5)
 
         # Read parameters and store in self.*
         self.port = self.get_parameter('port').get_parameter_value().string_value
@@ -33,9 +34,11 @@ class ESP32Bridge(Node):
         self.enc_vel_max_abs_mps = float(self.get_parameter('enc_vel_max_abs_mps').value)
         self.enc_vel_max_step_mps = float(self.get_parameter('enc_vel_max_step_mps').value)
         self.wheel_cmd_send_rate_hz = float(self.get_parameter('wheel_cmd_send_rate_hz').value)
+        self.wheel_cmd_stale_timeout_sec = float(self.get_parameter('wheel_cmd_stale_timeout_sec').value)
         self.last_enc_vel = None
         self.last_enc_reject_warn_time = 0.0
         self.latest_wheel_cmd = None
+        self.latest_wheel_cmd_time = 0.0
         self.wheel_cmd_seq = 0
         self.wheel_cmd_period = 1.0 / max(self.wheel_cmd_send_rate_hz, 1.0)
         self.last_wheel_cmd_write_time = 0.0
@@ -61,7 +64,7 @@ class ESP32Bridge(Node):
         self.pub_ultra_right = self.create_publisher(Range, '/ultrasonic/right', 10)
 
         self.ser = None
-        self.serial_lock = threading.Lock()
+        self.serial_lock = threading.RLock()
 
         # Publishers
         self.pub_enc_vel = self.create_publisher(
@@ -113,7 +116,7 @@ class ESP32Bridge(Node):
 
         self.wheel_cmd_timer = self.create_timer(
             self.wheel_cmd_period,
-            lambda: self.send_latest_wheel_cmd(throttle=True),
+            self.send_latest_wheel_cmd,
         )
 
         # Try to open serial (with retry)
@@ -183,20 +186,26 @@ class ESP32Bridge(Node):
                 return False
 
     def wheel_cmd_callback(self, msg: Float32MultiArray):
-        """Store the latest wheel_cmd and opportunistically send it immediately."""
+        """Store latest wheel_cmd; the timer owns serial writes for stable pacing."""
         self.latest_wheel_cmd = [float(x) for x in msg.data[:4]]
-        self.send_latest_wheel_cmd(throttle=True)
+        self.latest_wheel_cmd_time = time.monotonic()
 
-    def send_latest_wheel_cmd(self, throttle=False):
+    def send_latest_wheel_cmd(self):
         if self.latest_wheel_cmd is None:
             return
         now = time.monotonic()
-        if throttle and (now - self.last_wheel_cmd_write_time) < self.wheel_cmd_period:
+        if (now - self.last_wheel_cmd_write_time) < self.wheel_cmd_period:
             return
+        wheel_cmd = self.latest_wheel_cmd
+        if (
+            self.wheel_cmd_stale_timeout_sec > 0.0 and
+            (now - self.latest_wheel_cmd_time) > self.wheel_cmd_stale_timeout_sec
+        ):
+            wheel_cmd = [0.0, 0.0, 0.0, 0.0]
         self.wheel_cmd_seq = (self.wheel_cmd_seq + 1) & 0x7fffffff
         if self.write_json_line(
             {
-                'wheel_cmd': self.latest_wheel_cmd,
+                'wheel_cmd': wheel_cmd,
                 'cmd_seq': self.wheel_cmd_seq,
             },
             'wheel_cmd',
