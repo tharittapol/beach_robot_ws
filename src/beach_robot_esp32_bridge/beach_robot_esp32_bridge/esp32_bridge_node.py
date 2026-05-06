@@ -202,8 +202,6 @@ class ESP32Bridge(Node):
         if self.latest_wheel_cmd is None:
             return
         now = time.monotonic()
-        if (now - self.last_wheel_cmd_write_time) < self.wheel_cmd_period:
-            return
         wheel_cmd = self.latest_wheel_cmd
         if (
             self.wheel_cmd_stale_timeout_sec > 0.0 and

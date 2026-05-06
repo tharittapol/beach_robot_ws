@@ -55,7 +55,7 @@ static float PID_KP[WHEEL_COUNT] = { 0.15f, 0.18f, 0.04f, 0.03f };
 static float PID_KI[WHEEL_COUNT] = { 0.01f, 0.01f, 0.00f, 0.00f };
 static float PID_KD[WHEEL_COUNT] = { 0.00f, 0.00f, 0.00f, 0.00f };
 
-static constexpr uint32_t TELEMETRY_PERIOD_MS = 50;
+static uint32_t TELEMETRY_PERIOD_MS = 100;
 static bool DEBUG_TO_USB = false;
 static uint32_t DEBUG_PERIOD_MS = 200;
 
@@ -302,6 +302,12 @@ static void setActiveUFloor(int idx, float floor_u) {
   if (!validWheelIndex(idx)) return;
   if (!isfinite(floor_u)) return;
   ACTIVE_U_FLOOR[idx] = clampf(floor_u, 0.0f, 1.0f);
+}
+
+static void setTelemetryPeriodMs(uint32_t ms) {
+  if (ms < 50) ms = 50;
+  if (ms > 1000) ms = 1000;
+  TELEMETRY_PERIOD_MS = ms;
 }
 
 static void setLowSpeedTargetMax(int idx, float target_mps) {
@@ -801,6 +807,14 @@ static void handleJetsonLine(const char *line) {
     if (ms > 5000) ms = 5000;
     DEBUG_PERIOD_MS = ms;
   }
+
+  if (doc.containsKey("telemetry_period_ms")) {
+    setTelemetryPeriodMs(doc["telemetry_period_ms"] | TELEMETRY_PERIOD_MS);
+  }
+
+  if (doc.containsKey("status") && doc["status"].as<bool>()) {
+    publishDebug(true);
+  }
 }
 
 static void handleEncLine(const char *line) {
@@ -869,25 +883,25 @@ static void publishDebug(bool full) {
   JsonArray cmd_arr = dbg.createNestedArray("wheel_cmd");
   for (int i = 0; i < WHEEL_COUNT; ++i) cmd_arr.add(safeFloat(v_cmd[i]));
 
-  JsonArray raw_arr = dbg.createNestedArray("enc_vel_raw");
-  for (int i = 0; i < WHEEL_COUNT; ++i) raw_arr.add(safeFloat(enc_vel_raw[i]));
-
   JsonArray corr_arr = dbg.createNestedArray("enc_vel_corr");
   for (int i = 0; i < WHEEL_COUNT; ++i) corr_arr.add(safeFloat(enc_vel_corr[i]));
-
-  JsonArray cnt_arr = dbg.createNestedArray("wheel_cnt");
-  for (int i = 0; i < WHEEL_COUNT; ++i) cnt_arr.add((long long)wheel_cnt[i]);
-
-  JsonArray ff_arr = dbg.createNestedArray("u_ff");
-  for (int i = 0; i < WHEEL_COUNT; ++i) ff_arr.add(safeFloat(u_ff[i]));
-
-  JsonArray pid_arr = dbg.createNestedArray("u_pid");
-  for (int i = 0; i < WHEEL_COUNT; ++i) pid_arr.add(safeFloat(u_pid[i]));
 
   JsonArray out_arr = dbg.createNestedArray("motor_u");
   for (int i = 0; i < WHEEL_COUNT; ++i) out_arr.add(safeFloat(u_send[i]));
 
   if (full) {
+    JsonArray raw_arr = dbg.createNestedArray("enc_vel_raw");
+    for (int i = 0; i < WHEEL_COUNT; ++i) raw_arr.add(safeFloat(enc_vel_raw[i]));
+
+    JsonArray cnt_arr = dbg.createNestedArray("wheel_cnt");
+    for (int i = 0; i < WHEEL_COUNT; ++i) cnt_arr.add((long long)wheel_cnt[i]);
+
+    JsonArray ff_arr = dbg.createNestedArray("u_ff");
+    for (int i = 0; i < WHEEL_COUNT; ++i) ff_arr.add(safeFloat(u_ff[i]));
+
+    JsonArray pid_arr = dbg.createNestedArray("u_pid");
+    for (int i = 0; i < WHEEL_COUNT; ++i) pid_arr.add(safeFloat(u_pid[i]));
+
     JsonArray kp_arr = dbg.createNestedArray("pid_kp");
     for (int i = 0; i < WHEEL_COUNT; ++i) kp_arr.add(safeFloat(PID_KP[i]));
 
@@ -954,6 +968,7 @@ static void publishDebug(bool full) {
   dbg["cmd_seq_gap"] = wheel_cmd_rx_seq_gap;
   dbg["usb_parse_errors"] = usb_json_parse_error_count;
   dbg["usb_line_overflows"] = lr_usb.overflow_count;
+  dbg["telemetry_period_ms"] = TELEMETRY_PERIOD_MS;
   dbg["in_place_turn"] = isInPlaceTurnCommand() ? 1 : 0;
   dbg["moving_turn"] = isMovingTurnCommand() ? 1 : 0;
   dbg["spin_start_ms"] = in_place_turn_started_ms;
@@ -988,8 +1003,8 @@ void setup() {
   Serial.begin(JETSON_BAUD);
   Serial2.begin(ENC_BAUD, SERIAL_8N1, ENC_UART_RX_PIN, ENC_UART_TX_PIN);
 
-  Serial.setRxBufferSize(1024);
-  Serial2.setRxBufferSize(2048);
+  Serial.setRxBufferSize(4096);
+  Serial2.setRxBufferSize(4096);
 
   system_begin();
 
