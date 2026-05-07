@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+import random
 import socket
 import threading
 import time
@@ -15,13 +16,19 @@ import pynmea2
 def _gga_to_gpgga(gga: str) -> str:
     """
     Some casters behave better with $GPGGA (legacy) than $GNGGA.
-    Convert only the talker ID, keep checksum untouched (we are not recomputing).
-    This is usually accepted by NTRIP casters that only look at fields.
+    Recompute the checksum after changing the talker ID; some SNIP/RTK2GO
+    mountpoints close the stream when the upstream GGA checksum is wrong.
     """
     s = gga.strip()
-    if s.startswith("$GNGGA"):
-        return "$GPGGA" + s[6:]
-    return s
+    if not s.startswith("$"):
+        return s
+    body = s[1:].split("*", 1)[0]
+    if body.startswith("GNGGA"):
+        body = "GPGGA" + body[5:]
+    checksum = 0
+    for ch in body:
+        checksum ^= ord(ch)
+    return f"${body}*{checksum:02X}"
 
 
 class Um982NtripBridge(Node):
@@ -232,8 +239,10 @@ class Um982NtripBridge(Node):
             self.get_logger().error("NTRIP username is empty. Set username parameter.")
             return
 
+        reconnect_delay = 2.0
         while rclpy.ok() and not self._stop:
             sock = None
+            connected_since = None
             try:
                 sock = socket.create_connection((self.ntrip_host, self.ntrip_port), timeout=10.0)
 
@@ -287,6 +296,7 @@ class Um982NtripBridge(Node):
                     raise RuntimeError(f"NTRIP rejected/unknown response: {header[:200]!r}")
 
                 self.get_logger().info("NTRIP connected, streaming RTCM.")
+                connected_since = time.time()
                 sock.settimeout(2.0)
 
                 # Forward any bytes already received after the header
@@ -356,8 +366,15 @@ class Um982NtripBridge(Node):
                         continue
 
             except Exception as e:
-                self.get_logger().warn(f"NTRIP error: {e}. Reconnecting...")
-                time.sleep(2.0)
+                if connected_since is not None and (time.time() - connected_since) >= 30.0:
+                    reconnect_delay = 2.0
+                else:
+                    reconnect_delay = min(20.0, reconnect_delay * 1.5)
+                sleep_sec = reconnect_delay + random.uniform(0.0, 1.0)
+                self.get_logger().warn(
+                    f"NTRIP error: {e}. Reconnecting in {sleep_sec:.1f}s..."
+                )
+                time.sleep(sleep_sec)
             finally:
                 if sock:
                     try:
