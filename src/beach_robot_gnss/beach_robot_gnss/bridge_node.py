@@ -31,6 +31,35 @@ def _gga_to_gpgga(gga: str) -> str:
     return f"${body}*{checksum:02X}"
 
 
+def _nmea_checksum_ok(sentence: str) -> bool:
+    s = sentence.strip()
+    if not s.startswith("$") or "*" not in s:
+        return False
+    body, checksum_text = s[1:].split("*", 1)
+    checksum = 0
+    for ch in body:
+        checksum ^= ord(ch)
+    try:
+        expected = int(checksum_text[:2], 16)
+    except ValueError:
+        return False
+    return checksum == expected
+
+
+def _gga_summary(sentence: str) -> str:
+    try:
+        msg = pynmea2.parse(sentence)
+        fix_q = msg.gps_qual or "?"
+        sats = msg.num_sats or "?"
+        lat = f"{float(msg.latitude):.7f}" if msg.latitude else "?"
+        lon = f"{float(msg.longitude):.7f}" if msg.longitude else "?"
+    except Exception as exc:
+        return f"invalid_gga parse_error={exc}"
+    checksum = "ok" if _nmea_checksum_ok(sentence) else "bad"
+    talker = sentence[1:6] if sentence.startswith("$") and len(sentence) >= 6 else "?"
+    return f"{talker} fixq={fix_q} sats={sats} lat={lat} lon={lon} checksum={checksum}"
+
+
 class Um982NtripBridge(Node):
     """
     UM982 NTRIP bridge (RTCM -> serial) + GNSS fix publisher (GGA/GST).
@@ -60,7 +89,7 @@ class Um982NtripBridge(Node):
 
         # how often to send GGA upstream to caster (seconds)
         # (0.2s helps keep RTK2GO sessions alive in some cases)
-        self.gga_send_period = float(self.declare_parameter("gga_send_period", 0.2).value)
+        self.gga_send_period = float(self.declare_parameter("gga_send_period", 5.0).value)
         self.send_gga = bool(self.declare_parameter("send_gga", True).value)
 
         # If True, convert $GNGGA -> $GPGGA before sending to caster
@@ -317,7 +346,9 @@ class Um982NtripBridge(Node):
                         try:
                             sock.sendall((gga_send + "\r\n").encode("ascii", errors="ignore"))
                             last_gga_sent = time.time()
-                            self.get_logger().info("Sent initial GGA to NTRIP caster.")
+                            self.get_logger().info(
+                                f"Sent initial GGA to NTRIP caster: {_gga_summary(gga_send)}"
+                            )
                         except Exception:
                             pass
                     else:
@@ -341,6 +372,9 @@ class Um982NtripBridge(Node):
                             try:
                                 sock.sendall((gga_send + "\r\n").encode("ascii", errors="ignore"))
                                 last_gga_sent = now
+                                self.get_logger().debug(
+                                    f"Sent periodic GGA to NTRIP caster: {_gga_summary(gga_send)}"
+                                )
                             except Exception:
                                 pass
 

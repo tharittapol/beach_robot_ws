@@ -8,7 +8,7 @@ def generate_launch_description():
     force_gpgga = LaunchConfiguration('force_gpgga')
 
     return LaunchDescription([
-        DeclareLaunchArgument('gga_send_period', default_value='0.5'),
+        DeclareLaunchArgument('gga_send_period', default_value='5.0'),
         DeclareLaunchArgument('force_gpgga', default_value='true'),
 
         Node(

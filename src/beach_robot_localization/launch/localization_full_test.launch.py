@@ -32,6 +32,8 @@ def generate_launch_description():
     use_mixer = LaunchConfiguration('use_mixer')
     use_zed = LaunchConfiguration('use_zed')
     use_gnss = LaunchConfiguration('use_gnss')
+    gnss_gga_send_period = LaunchConfiguration('gnss_gga_send_period')
+    gnss_force_gpgga = LaunchConfiguration('gnss_force_gpgga')
 
     esp32_port = LaunchConfiguration('esp32_port')
     esp32_baudrate = LaunchConfiguration('esp32_baudrate')
@@ -66,6 +68,16 @@ def generate_launch_description():
             'use_gnss',
             default_value='true',
             description='Launch UM982 GNSS and publish /odometry/gps for report bags.',
+        ),
+        DeclareLaunchArgument(
+            'gnss_gga_send_period',
+            default_value='5.0',
+            description='NTRIP upstream GGA period in seconds. RTK2GO is often more stable around 5s than sub-second rates.',
+        ),
+        DeclareLaunchArgument(
+            'gnss_force_gpgga',
+            default_value='false',
+            description='Convert GNGGA to GPGGA before sending to the NTRIP caster.',
         ),
 
         DeclareLaunchArgument('esp32_port', default_value='/dev/ttyESP32'),
@@ -185,6 +197,10 @@ def generate_launch_description():
         _include(
             'beach_robot_gnss',
             'launch/um982_fix_nema.launch.py',
+            launch_args={
+                'gga_send_period': gnss_gga_send_period,
+                'force_gpgga': gnss_force_gpgga,
+            },
             condition=IfCondition(use_gnss),
         ),
 
