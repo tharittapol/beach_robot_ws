@@ -13,6 +13,20 @@ def generate_launch_description():
     keepout_mask_yaml = LaunchConfiguration('keepout_mask_yaml')
     start_coverage = LaunchConfiguration('start_coverage')
     start_delay_sec = LaunchConfiguration('start_delay_sec')
+    coverage_pattern = LaunchConfiguration('coverage_pattern')
+    area_origin_x = LaunchConfiguration('area_origin_x')
+    area_origin_y = LaunchConfiguration('area_origin_y')
+    area_width = LaunchConfiguration('area_width')
+    area_height = LaunchConfiguration('area_height')
+    area_yaw = LaunchConfiguration('area_yaw')
+    tool_width = LaunchConfiguration('tool_width')
+    overlap = LaunchConfiguration('overlap')
+    lane_spacing = LaunchConfiguration('lane_spacing')
+    auto_widen_lanes_for_turn = LaunchConfiguration('auto_widen_lanes_for_turn')
+    boundary_margin = LaunchConfiguration('boundary_margin')
+    waypoint_step = LaunchConfiguration('waypoint_step')
+    turn_style = LaunchConfiguration('turn_style')
+    turn_radius = LaunchConfiguration('turn_radius')
 
     pkg = get_package_share_directory('beach_robot_coverage_nav2')
     default_nav2_params = os.path.join(pkg, 'config', 'nav2_params_keepout.yaml')
@@ -24,6 +38,20 @@ def generate_launch_description():
         DeclareLaunchArgument('keepout_mask_yaml', default_value=default_keepout_mask_yaml),
         DeclareLaunchArgument('start_coverage', default_value='true'),
         DeclareLaunchArgument('start_delay_sec', default_value='15.0'),
+        DeclareLaunchArgument('coverage_pattern', default_value='boustrophedon'),
+        DeclareLaunchArgument('area_origin_x', default_value='0.0'),
+        DeclareLaunchArgument('area_origin_y', default_value='0.0'),
+        DeclareLaunchArgument('area_width', default_value='30.0'),
+        DeclareLaunchArgument('area_height', default_value='10.0'),
+        DeclareLaunchArgument('area_yaw', default_value='0.0'),
+        DeclareLaunchArgument('tool_width', default_value='0.60'),
+        DeclareLaunchArgument('overlap', default_value='0.0'),
+        DeclareLaunchArgument('lane_spacing', default_value='0.60'),
+        DeclareLaunchArgument('auto_widen_lanes_for_turn', default_value='false'),
+        DeclareLaunchArgument('boundary_margin', default_value='0.30'),
+        DeclareLaunchArgument('waypoint_step', default_value='1.0'),
+        DeclareLaunchArgument('turn_style', default_value='arc'),
+        DeclareLaunchArgument('turn_radius', default_value='0.30'),
     ]
 
     keepout_mask_server = Node(
@@ -73,21 +101,24 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             # --- area (rectangle) ---
-            'area.origin_x': 0.0,
-            'area.origin_y': 0.0,
-            'area.width': 30.0,     # ด้านยาว (แนววิ่งขนานชายหาด)
-            'area.height': 10.0,    # ด้านกว้าง (แนว shift lane)
-            'area.yaw': 0.0,        # ถ้าแกน X ของ map ขนานชายหาดอยู่แล้ว
+            'area.origin_x': area_origin_x,
+            'area.origin_y': area_origin_y,
+            'area.width': area_width,     # ด้านยาว (แนววิ่งขนานชายหาด)
+            'area.height': area_height,   # ด้านกว้าง (แนว shift lane)
+            'area.yaw': area_yaw,         # ถ้าแกน X ของ map ขนานชายหาดอยู่แล้ว
 
             # --- coverage ---
-            'tool_width': 0.60,
-            'overlap': 0.15,
-            'boundary_margin': 0.30,
-            'waypoint_step': 2.0,
+            'pattern': coverage_pattern,
+            'tool_width': tool_width,
+            'overlap': overlap,
+            'lane_spacing': lane_spacing,
+            'auto_widen_lanes_for_turn': auto_widen_lanes_for_turn,
+            'boundary_margin': boundary_margin,
+            'waypoint_step': waypoint_step,
 
             # --- turn ---
-            'turn_style': 'arc',
-            'turn_radius': 1.0,
+            'turn_style': turn_style,
+            'turn_radius': turn_radius,
 
             # --- run ---
             'autostart': start_coverage,
