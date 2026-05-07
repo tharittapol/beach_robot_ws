@@ -1,13 +1,25 @@
 # Confirm the caster login works (from Jetson)
-```bash
-curl --http0.9 -v --user "wachiramate-at-gmail-d-com:none" \
-  "http://rtk2go.com:2101/Pump236" --max-time 5 --output /dev/null
+
+Do not use normal `curl` as the main NTRIP check. Some SNIP/RTK2GO casters
+reject plain HTTP/1.1 clients with:
+
+```text
+You have just sent nonsense to the NTRIP Caster.
 ```
-`Expected`: see ICY 200 OK in the headers and then it will stream binary until timeout.
+
+Use a minimal NTRIP client request instead.
+
+```bash
+AUTH=$(printf 'wachiramate-at-gmail-d-com:none' | base64)
+printf "GET /SRPDI1968 HTTP/1.0\r\nUser-Agent: NTRIP UM982/1.0\r\nAuthorization: Basic ${AUTH}\r\n\r\n" \
+| timeout 5 nc rtk2go.com 2101 | tee /tmp/ntrip_check.bin | head -c 120
+```
+`Expected`: see `ICY 200 OK` or `HTTP/... 200` and then binary RTCM bytes.
 
 # Confirm NTRIP is truly streaming RTCM (strong proof)
 ```bash
-printf "GET /Pump236 HTTP/1.0\r\nUser-Agent: NTRIP\r\nAuthorization: Basic $(printf 'wachiramate-at-gmail-d-com:none' | base64)\r\n\r\n" \
+AUTH=$(printf 'wachiramate-at-gmail-d-com:none' | base64)
+printf "GET /SRPDI1968 HTTP/1.0\r\nUser-Agent: NTRIP UM982/1.0\r\nAuthorization: Basic ${AUTH}\r\n\r\n" \
 | timeout 5 nc rtk2go.com 2101 | wc -c
 ```
 `Expected`: If it returns a large number (typically thousands to hundreds of thousands of bytes in 5s), RTCM is streaming.

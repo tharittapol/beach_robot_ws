@@ -15,11 +15,12 @@ def generate_launch_description():
 
                 'ntrip_host': 'rtk2go.com',
                 'ntrip_port': 2101,
-                'mountpoint': 'Pump236',
+                'mountpoint': 'SRPDI1968',
 
                 # rtk2go: email conversion + password none
                 'username': 'wachiramate-at-gmail-d-com',
                 'password': 'none',
+                'user_agent': 'NTRIP UM982/1.0',
 
                 'gga_send_period': 0.5
             }],

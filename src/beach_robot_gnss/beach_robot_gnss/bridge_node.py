@@ -49,6 +49,7 @@ class Um982NtripBridge(Node):
         self.mountpoint = self.declare_parameter("mountpoint", "TH-Kukot").value
         self.username = self.declare_parameter("username", "").value
         self.password = self.declare_parameter("password", "none").value
+        self.user_agent = self.declare_parameter("user_agent", "NTRIP UM982/1.0").value
 
         # how often to send GGA upstream to caster (seconds)
         # (0.2s helps keep RTK2GO sessions alive in some cases)
@@ -244,13 +245,11 @@ class Um982NtripBridge(Node):
 
                 auth = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
 
-                # RTK2GO-friendly headers
+                # SNIP/RTK2GO expects a real NTRIP client request. A plain
+                # HTTP/1.1 request from curl is often rejected as "nonsense".
                 req = (
-                    f"GET /{self.mountpoint} HTTP/1.1\r\n"
-                    f"Host: {self.ntrip_host}:{self.ntrip_port}\r\n"
-                    f"Ntrip-Version: Ntrip/2.0\r\n"
-                    f"User-Agent: NTRIP RTKLIB/2.4.3\r\n"
-                    f"Connection: keep-alive\r\n"
+                    f"GET /{self.mountpoint} HTTP/1.0\r\n"
+                    f"User-Agent: {self.user_agent}\r\n"
                     f"Authorization: Basic {auth}\r\n"
                     f"\r\n"
                 )
@@ -296,18 +295,23 @@ class Um982NtripBridge(Node):
 
                 last_gga_sent = 0.0
 
-                # Send one GGA immediately after connect
+                # Send one GGA immediately after connect. Many RTK2GO/SNIP
+                # mountpoints close rover sessions if they do not receive GGA
+                # promptly; send the latest sentence even before RTK quality
+                # improves as long as the receiver is producing GGA.
                 if self.send_gga:
                     with self._lock:
                         gga0 = self._latest_gga_sentence
-                        fixq0 = self._latest_fix_quality
-                    if gga0 and fixq0 >= 1:
+                    if gga0:
                         gga_send = _gga_to_gpgga(gga0) if self.force_gpgga else gga0.strip()
                         try:
                             sock.sendall((gga_send + "\r\n").encode("ascii", errors="ignore"))
                             last_gga_sent = time.time()
+                            self.get_logger().info("Sent initial GGA to NTRIP caster.")
                         except Exception:
                             pass
+                    else:
+                        self.get_logger().warn("No GGA available yet; caster may close NTRIP stream.")
 
                 # Debug: RTCM throughput
                 rtcm_bytes = 0
@@ -316,12 +320,13 @@ class Um982NtripBridge(Node):
                 while rclpy.ok() and not self._stop:
                     now = time.time()
 
-                    # Periodically send GGA upstream (only if fix is valid)
+                    # Periodically send GGA upstream whenever the receiver is
+                    # producing GGA. The caster may need it even for non-RTK
+                    # fix quality to choose nearby corrections.
                     if self.send_gga and (now - last_gga_sent) >= self.gga_send_period:
                         with self._lock:
                             gga = self._latest_gga_sentence
-                            fixq = self._latest_fix_quality
-                        if gga and fixq >= 1:
+                        if gga:
                             gga_send = _gga_to_gpgga(gga) if self.force_gpgga else gga.strip()
                             try:
                                 sock.sendall((gga_send + "\r\n").encode("ascii", errors="ignore"))
