@@ -10,8 +10,12 @@ from rclpy.action import ActionClient
 from geometry_msgs.msg import PoseStamped, Quaternion
 from nav2_msgs.action import FollowWaypoints
 from nav_msgs.msg import Path
-from tf_transformations import quaternion_from_euler
 from rclpy.qos import DurabilityPolicy, QoSProfile
+
+
+def quaternion_from_yaw(yaw: float):
+    half = 0.5 * yaw
+    return 0.0, 0.0, math.sin(half), math.cos(half)
 
 
 @dataclass
@@ -144,7 +148,7 @@ class CoverageFollowWaypoints(Node):
         return (self.area.origin_x + rx, self.area.origin_y + ry)
 
     def _pose(self, x: float, y: float, yaw: float) -> PoseStamped:
-        q = quaternion_from_euler(0.0, 0.0, yaw)
+        q = quaternion_from_yaw(yaw)
         ps = PoseStamped()
         ps.header.frame_id = self.frame_id
         ps.header.stamp = self.get_clock().now().to_msg()
