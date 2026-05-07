@@ -26,6 +26,7 @@ def generate_launch_description():
     wheel_scale_rr = LaunchConfiguration('wheel_scale_rr')
     linear_scale = LaunchConfiguration('linear_scale')
     angular_scale = LaunchConfiguration('angular_scale')
+    publish_fusion_bno_tf = LaunchConfiguration('publish_fusion_bno_tf')
 
     static_tf_launch = os.path.join(pkg, 'launch', 'static_sensors_tf.launch.py')
     ekf_compare = os.path.join(pkg, 'config', 'ekf_imu_compare.yaml')
@@ -45,6 +46,11 @@ def generate_launch_description():
         DeclareLaunchArgument('wheel_scale_rr', default_value='1.0'),
         DeclareLaunchArgument('linear_scale', default_value='1.0'),
         DeclareLaunchArgument('angular_scale', default_value='1.0'),
+        DeclareLaunchArgument(
+            'publish_fusion_bno_tf',
+            default_value='false',
+            description='Publish odom->base_link from fusion_bno only. Keep false for pure comparison bags.',
+        ),
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(static_tf_launch),
@@ -114,7 +120,10 @@ def generate_launch_description():
             executable='ekf_node',
             name='ekf_wheel_bno',
             output='screen',
-            parameters=[ekf_compare, {'use_sim_time': use_sim_time}],
+            parameters=[ekf_compare, {
+                'use_sim_time': use_sim_time,
+                'publish_tf': publish_fusion_bno_tf,
+            }],
             remappings=[
                 ('odometry/filtered', '/odometry/fusion_bno'),
                 ('wheel/odom', wheel_odom_topic),

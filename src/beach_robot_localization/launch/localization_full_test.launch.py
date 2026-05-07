@@ -204,6 +204,7 @@ def generate_launch_description():
                 'wheel_scale_fr': wheel_scale_fr,
                 'wheel_scale_rl': wheel_scale_rl,
                 'wheel_scale_rr': wheel_scale_rr,
+                'publish_fusion_bno_tf': 'true',
             },
         ),
 
