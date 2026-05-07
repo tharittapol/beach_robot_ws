@@ -26,8 +26,8 @@ local_costmap:
       global_frame: odom
       robot_base_frame: base_link
       rolling_window: true
-      width: 10.0
-      height: 10.0
+      width: 10
+      height: 10
       resolution: 0.10
       robot_radius: 0.40   # ถ้าใช้ footprint ให้เปลี่ยนเป็น footprint
       plugins: ["obstacle_layer", "inflation_layer"]
