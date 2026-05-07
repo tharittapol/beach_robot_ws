@@ -25,7 +25,7 @@ def generate_launch_description():
                 'wheel_scale_fr': 1.0,
                 'wheel_scale_rl': 0.64,
                 'wheel_scale_rr': 0.64,
-                'linear_scale': 1.53,
+                'linear_scale': 1.45,
                 'angular_scale': 1.0,
                 'base_frame_id': 'base_link',
                 'odom_frame_id': 'odom',

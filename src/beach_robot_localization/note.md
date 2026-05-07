@@ -5,7 +5,7 @@ ros2 launch beach_robot_localization localization_full_test.launch.py \
   esp32_port:=/dev/ttyESP32 \
   wheel_cmd_send_rate_hz:=20.0 \
   publish_raw_json:=false \
-  linear_scale:=1.53 \
+  linear_scale:=1.45 \
   angular_scale:=1.0 \
   mixer_params_file:=$HOME/beach_robot_ws/src/beach_wheel_mixer/config/mixer.yaml
 -------------------------
