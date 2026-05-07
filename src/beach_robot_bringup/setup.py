@@ -36,6 +36,7 @@ setup(
             'wheel_response_test = beach_robot_bringup.tools.wheel_response_test:main',
             'wheel_response_analyze = beach_robot_bringup.tools.analyze_wheel_response:main',
             'spin_tune_analyze = beach_robot_bringup.tools.analyze_spin_tune:main',
+            'localization_pose_report = beach_robot_bringup.tools.localization_pose_report:main',
         ],
     },
 )

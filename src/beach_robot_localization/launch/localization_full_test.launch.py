@@ -6,6 +6,7 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
 
 
 def _include(pkg_name, relative_path, launch_args=None, condition=None):
@@ -22,12 +23,15 @@ def _include(pkg_name, relative_path, launch_args=None, condition=None):
 
 def generate_launch_description():
     mixer_pkg = get_package_share_directory('beach_wheel_mixer')
+    localization_pkg = get_package_share_directory('beach_robot_localization')
+    navsat_params = os.path.join(localization_pkg, 'config', 'navsat.yaml')
 
     use_sim_time = LaunchConfiguration('use_sim_time')
     use_esp32 = LaunchConfiguration('use_esp32')
     use_teleop = LaunchConfiguration('use_teleop')
     use_mixer = LaunchConfiguration('use_mixer')
     use_zed = LaunchConfiguration('use_zed')
+    use_gnss = LaunchConfiguration('use_gnss')
 
     esp32_port = LaunchConfiguration('esp32_port')
     esp32_baudrate = LaunchConfiguration('esp32_baudrate')
@@ -58,6 +62,11 @@ def generate_launch_description():
         DeclareLaunchArgument('use_teleop', default_value='true'),
         DeclareLaunchArgument('use_mixer', default_value='true'),
         DeclareLaunchArgument('use_zed', default_value='true'),
+        DeclareLaunchArgument(
+            'use_gnss',
+            default_value='true',
+            description='Launch UM982 GNSS and publish /odometry/gps for report bags.',
+        ),
 
         DeclareLaunchArgument('esp32_port', default_value='/dev/ttyESP32'),
         DeclareLaunchArgument('esp32_baudrate', default_value='230400'),
@@ -174,6 +183,12 @@ def generate_launch_description():
         ),
 
         _include(
+            'beach_robot_gnss',
+            'launch/um982_fix_nema.launch.py',
+            condition=IfCondition(use_gnss),
+        ),
+
+        _include(
             'beach_robot_localization',
             'launch/localization_imu_compare.launch.py',
             launch_args={
@@ -190,5 +205,20 @@ def generate_launch_description():
                 'wheel_scale_rl': wheel_scale_rl,
                 'wheel_scale_rr': wheel_scale_rr,
             },
+        ),
+
+        Node(
+            package='robot_localization',
+            executable='navsat_transform_node',
+            name='navsat_transform_report',
+            output='screen',
+            parameters=[navsat_params, {'use_sim_time': use_sim_time}],
+            remappings=[
+                ('imu', '/imu/data'),
+                ('gps/fix', '/gps/fix'),
+                ('odometry/filtered', '/odometry/fusion_bno'),
+                ('odometry/gps', '/odometry/gps'),
+            ],
+            condition=IfCondition(use_gnss),
         ),
     ])
