@@ -80,6 +80,8 @@ class CoverageFollowWaypoints(Node):
         preview_qos = QoSProfile(depth=1)
         preview_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.path_pub = self.create_publisher(Path, self.preview_path_topic, preview_qos)
+        # volatile publisher for RViz2 (which defaults to VOLATILE QoS)
+        self.path_pub_viz = self.create_publisher(Path, self.preview_path_topic + '_viz', 10)
 
         self._started = False
         if self._as_bool(self.get_parameter('autostart').value):
@@ -307,6 +309,7 @@ class CoverageFollowWaypoints(Node):
         path.header.stamp = self.get_clock().now().to_msg()
         path.poses = poses
         self.path_pub.publish(path)
+        self.path_pub_viz.publish(path)
         self.get_logger().info(f'Published preview path on {self.preview_path_topic}: {len(poses)} poses')
 
 
