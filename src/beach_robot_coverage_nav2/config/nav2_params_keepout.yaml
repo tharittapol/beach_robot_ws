@@ -13,14 +13,36 @@ controller_server:
     use_sim_time: false
     controller_frequency: 20.0
     controller_plugins: ["FollowPath"]
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.3
+      movement_time_allowance: 15.0
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.25
+      yaw_goal_tolerance: 0.5
+      stateful: true
     FollowPath:
       plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
-      desired_linear_vel: 0.5
-      lookahead_dist: 1.5
-      min_lookahead_dist: 0.8
-      max_lookahead_dist: 3.0
-      rotate_to_heading_angular_vel: 0.6
-      use_velocity_scaled_lookahead_dist: true
+      # --- speed: match joystick teleop limits ---
+      desired_linear_vel: 0.17
+      min_approach_linear_velocity: 0.05
+      # --- heading: never spin-in-place, always move+steer simultaneously ---
+      use_rotate_to_heading: false
+      rotate_to_heading_angular_vel: 0.30
+      # --- lookahead: tight enough to track 0.30 m arc turns cleanly ---
+      lookahead_dist: 0.5
+      min_lookahead_dist: 0.25
+      max_lookahead_dist: 0.8
+      use_velocity_scaled_lookahead_dist: false
+      # --- regulated scaling: auto-slow on tight curves (arc ~0.30 m radius) ---
+      use_regulated_linear_velocity_scaling: true
+      regulated_linear_scaling_min_radius: 0.5
+      regulated_linear_scaling_min_speed: 0.05
+      use_cost_regulated_linear_velocity_scaling: false
+      allow_reversing: false
       transform_tolerance: 0.2
 planner_server:
   ros__parameters:
