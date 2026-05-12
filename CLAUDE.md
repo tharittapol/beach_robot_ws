@@ -161,10 +161,20 @@ ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
   start_coverage:=false \
   coverage_pattern:=boustrophedon \
   area_origin_x:=0.0 area_origin_y:=0.0 \
-  area_width:=10.0 area_height:=5.0 area_yaw:=0.0 \
-  lane_spacing:=0.60 turn_radius:=0.30
+  area_width:=3.0 area_height:=1.8 area_yaw:=0.0 \
+  lane_spacing:=0.60 turn_radius:=0.30 \
+  boundary_margin:=0.0
 ```
-Open RViz2 and visualise `/coverage/path` (type: Path, frame: map).
+```bash
+ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
+  start_coverage:=false \
+  coverage_pattern:=spiral \
+  area_origin_x:=0.0 area_origin_y:=0.0 \
+  area_width:=3.0 area_height:=1.8 area_yaw:=0.0 \
+  lane_spacing:=0.60 turn_radius:=0.30 \
+  boundary_margin:=0.0
+```
+Open RViz2 and visualise `/coverage/path_viz` (type: Path, frame: map, republish 3 sec, QoS: volatile).
 Verify the lane pattern covers the expected rectangle.
 
 ### Step 2 — Autonomous boustrophedon run
@@ -173,8 +183,9 @@ ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
   start_coverage:=true \
   coverage_pattern:=boustrophedon \
   area_origin_x:=0.0 area_origin_y:=0.0 \
-  area_width:=10.0 area_height:=5.0 area_yaw:=0.0 \
-  lane_spacing:=0.60 turn_radius:=0.30
+  area_width:=3.0 area_height:=1.8 area_yaw:=0.0 \
+  lane_spacing:=0.60 turn_radius:=0.30 \
+  boundary_margin:=0.0
 ```
 
 ### Step 3 — Spiral pattern

@@ -140,6 +140,24 @@ def generate_launch_description():
         }],
     )
 
+    # Lifecycle manager for the keepout servers — nav2_map_server nodes are
+    # lifecycle nodes and must be transitioned to active before Nav2 costmap
+    # filters can receive the mask.
+    keepout_lifecycle = Node(
+        package='nav2_lifecycle_manager',
+        executable='lifecycle_manager',
+        name='lifecycle_manager_map',
+        output='screen',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'autostart': True,
+            'node_names': [
+                'keepout_filter_mask_server',
+                'keepout_costmap_filter_info_server',
+            ],
+        }],
+    )
+
     nav2_pkg = get_package_share_directory('nav2_bringup')
     navigation_launch = os.path.join(nav2_pkg, 'launch', 'navigation_launch.py')
 
@@ -190,6 +208,7 @@ def generate_launch_description():
         map_to_odom_tf,
         keepout_mask_server,
         keepout_info_server,
+        keepout_lifecycle,
         nav2,
         coverage,
     ])
