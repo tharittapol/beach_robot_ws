@@ -8,7 +8,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 
 from geometry_msgs.msg import PoseStamped, Quaternion
-from nav2_msgs.action import NavigateThroughPoses
+from nav2_msgs.action import FollowWaypoints
 from nav_msgs.msg import Path
 from rclpy.qos import DurabilityPolicy, QoSProfile
 
@@ -47,7 +47,7 @@ class CoverageFollowWaypoints(Node):
         self.declare_parameter('turn_style', 'arc')  # arc|corner
         self.declare_parameter('turn_radius', 0.30)
 
-        self.declare_parameter('action_name', 'navigate_through_poses')
+        self.declare_parameter('action_name', 'follow_waypoints')
         self.declare_parameter('frame_id', 'map')
         self.declare_parameter('preview_path_topic', '/coverage/path')
         self.declare_parameter('autostart', True)
@@ -76,7 +76,7 @@ class CoverageFollowWaypoints(Node):
         self.frame_id = str(self.get_parameter('frame_id').value)
         self.preview_path_topic = str(self.get_parameter('preview_path_topic').value)
 
-        self._ac = ActionClient(self, NavigateThroughPoses, self.action_name)
+        self._ac = ActionClient(self, FollowWaypoints, self.action_name)
         preview_qos = QoSProfile(depth=1)
         preview_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.path_pub = self.create_publisher(Path, self.preview_path_topic, preview_qos)
@@ -131,15 +131,15 @@ class CoverageFollowWaypoints(Node):
         if self._started:
             return
         self._started = True
-        self.get_logger().info('Waiting for Nav2 NavigateThroughPoses...')
+        self.get_logger().info('Waiting for Nav2 FollowWaypoints...')
         if not self._ac.wait_for_server(timeout_sec=20.0):
-            self.get_logger().error('NavigateThroughPoses action server not available.')
+            self.get_logger().error('FollowWaypoints action server not available.')
             return
 
         poses = self.generate_coverage_poses()
         self.publish_preview(poses)
-        self.get_logger().info(f'Sending {len(poses)} {self.pattern} poses via NavigateThroughPoses...')
-        goal = NavigateThroughPoses.Goal()
+        self.get_logger().info(f'Sending {len(poses)} {self.pattern} waypoints...')
+        goal = FollowWaypoints.Goal()
         goal.poses = poses
         self._ac.send_goal_async(goal)
 
@@ -196,17 +196,17 @@ class CoverageFollowWaypoints(Node):
                 mx, my = self._to_map(lx, ly2)
                 poses.append(self._pose(mx, my, self.area.yaw + yaw_lane))
 
-            # turn to next lane
+            # turn to next lane: ONE goal at the start of the next lane.
+            # The planner finds its own path; if the robot can't reach the
+            # exact pose, stop_on_failure=false skips it and the next lane
+            # waypoints become the new target from wherever the robot is.
             if i != len(lane_ys) - 1:
                 next_y = lane_ys[i + 1]
                 x_end = p1[0]
-                if self.turn_style == 'arc':
-                    turn_pts = self._turn_arc(x_end, ly, next_y, forward)
-                else:
-                    turn_pts = [(x_end, next_y, yaw_lane)]
-                for lx, ly3, lyaw in turn_pts:
-                    mx, my = self._to_map(lx, ly3)
-                    poses.append(self._pose(mx, my, self.area.yaw + lyaw))
+                # heading of the NEXT lane (opposite of current)
+                next_lane_yaw = math.pi if forward else 0.0
+                mx, my = self._to_map(x_end, next_y)
+                poses.append(self._pose(mx, my, self.area.yaw + next_lane_yaw))
 
             forward = not forward
 

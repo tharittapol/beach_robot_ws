@@ -160,6 +160,7 @@ def generate_launch_description():
 
     nav2_pkg = get_package_share_directory('nav2_bringup')
     navigation_launch = os.path.join(nav2_pkg, 'launch', 'navigation_launch.py')
+    coverage_bt_xml = os.path.join(pkg, 'config', 'coverage_navigate_to_pose.xml')
 
     nav2 = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(navigation_launch),
@@ -168,6 +169,7 @@ def generate_launch_description():
             'params_file': nav2_params,
             'map': keepout_mask_yaml,
             'autostart': 'true',
+            'default_bt_xml_filename': coverage_bt_xml,
         }.items()
     )
 
