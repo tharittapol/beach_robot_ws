@@ -284,7 +284,8 @@ class CoverageFollowWaypoints(Node):
             yaw = 0.0 if forward else math.pi
             return [(x_end, y_next, yaw)]
 
-        cx = x_end
+        # forward: arc bulges right (+x beyond x_end); backward: bulges left (-x)
+        sign = 1.0 if forward else -1.0
         cy = (y_cur + y_next) / 2.0
         steps = max(8, int(math.ceil(math.pi * r / max(self.waypoint_step, 0.1))))
         if dy >= 0.0:
@@ -296,11 +297,10 @@ class CoverageFollowWaypoints(Node):
         pts = []
         for i in range(1, steps + 1):
             th = theta0 + (theta1 - theta0) * (i / steps)
-            lx = cx + r * math.cos(th)
+            lx = x_end + sign * r * math.cos(th)
             ly = cy + r * math.sin(th)
-            yaw = th + math.pi/2.0
-            if not forward:
-                yaw += math.pi
+            # forward: heading rotates E→N→W; backward: W→N→E
+            yaw = th + math.pi / 2.0 if forward else math.pi / 2.0 - th
             pts.append((lx, ly, yaw))
         return pts
 
