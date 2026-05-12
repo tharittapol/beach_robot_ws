@@ -83,6 +83,7 @@ class CoverageFollowWaypoints(Node):
         # volatile publisher for RViz2 (which defaults to VOLATILE QoS)
         self.path_pub_viz = self.create_publisher(Path, self.preview_path_topic + '_viz', 10)
 
+        self._preview_poses = None
         self._started = False
         if self._as_bool(self.get_parameter('autostart').value):
             delay = float(self.get_parameter('start_delay_sec').value)
@@ -90,6 +91,8 @@ class CoverageFollowWaypoints(Node):
         else:
             self._started = True
             self.publish_preview()
+        # republish viz path every 3 s so RViz2 that opens late will see it
+        self.create_timer(3.0, self._republish_viz)
 
         self.get_logger().info(
             f'Coverage planner: pattern={self.pattern} area={self.area.width:.2f}x{self.area.height:.2f}m, '
@@ -304,6 +307,7 @@ class CoverageFollowWaypoints(Node):
     def publish_preview(self, poses=None):
         if poses is None:
             poses = self.generate_coverage_poses()
+        self._preview_poses = poses
         path = Path()
         path.header.frame_id = self.frame_id
         path.header.stamp = self.get_clock().now().to_msg()
@@ -311,6 +315,14 @@ class CoverageFollowWaypoints(Node):
         self.path_pub.publish(path)
         self.path_pub_viz.publish(path)
         self.get_logger().info(f'Published preview path on {self.preview_path_topic}: {len(poses)} poses')
+
+    def _republish_viz(self):
+        if self._preview_poses is not None:
+            path = Path()
+            path.header.frame_id = self.frame_id
+            path.header.stamp = self.get_clock().now().to_msg()
+            path.poses = self._preview_poses
+            self.path_pub_viz.publish(path)
 
 
 def main():
