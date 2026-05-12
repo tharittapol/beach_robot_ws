@@ -1,5 +1,6 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
@@ -11,6 +12,16 @@ def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
     nav2_params = LaunchConfiguration('nav2_params')
     keepout_mask_yaml = LaunchConfiguration('keepout_mask_yaml')
+    use_robot_stack = LaunchConfiguration('use_robot_stack')
+    use_zed = LaunchConfiguration('use_zed')
+    use_gnss = LaunchConfiguration('use_gnss')
+    esp32_port = LaunchConfiguration('esp32_port')
+    wheel_cmd_send_rate_hz = LaunchConfiguration('wheel_cmd_send_rate_hz')
+    publish_raw_json = LaunchConfiguration('publish_raw_json')
+    linear_scale = LaunchConfiguration('linear_scale')
+    angular_scale = LaunchConfiguration('angular_scale')
+    mixer_params_file = LaunchConfiguration('mixer_params_file')
+    publish_map_to_odom_tf = LaunchConfiguration('publish_map_to_odom_tf')
     start_coverage = LaunchConfiguration('start_coverage')
     start_delay_sec = LaunchConfiguration('start_delay_sec')
     coverage_pattern = LaunchConfiguration('coverage_pattern')
@@ -29,13 +40,35 @@ def generate_launch_description():
     turn_radius = LaunchConfiguration('turn_radius')
 
     pkg = get_package_share_directory('beach_robot_coverage_nav2')
+    localization_pkg = get_package_share_directory('beach_robot_localization')
+    mixer_pkg = get_package_share_directory('beach_wheel_mixer')
     default_nav2_params = os.path.join(pkg, 'config', 'nav2_params_keepout.yaml')
     default_keepout_mask_yaml = os.path.join(pkg, 'config', 'keepout_mask.yaml')
+    localization_launch = os.path.join(localization_pkg, 'launch', 'localization_full_test.launch.py')
+    default_mixer_params = os.path.join(mixer_pkg, 'config', 'mixer.yaml')
 
     declare = [
         DeclareLaunchArgument('use_sim_time', default_value='false'),
         DeclareLaunchArgument('nav2_params', default_value=default_nav2_params),
         DeclareLaunchArgument('keepout_mask_yaml', default_value=default_keepout_mask_yaml),
+        DeclareLaunchArgument(
+            'use_robot_stack',
+            default_value='true',
+            description='Launch ESP32, mixer, sensors, and EKF so Nav2 has odom->base_link TF.',
+        ),
+        DeclareLaunchArgument('use_zed', default_value='true'),
+        DeclareLaunchArgument('use_gnss', default_value='false'),
+        DeclareLaunchArgument('esp32_port', default_value='/dev/ttyESP32'),
+        DeclareLaunchArgument('wheel_cmd_send_rate_hz', default_value='20.0'),
+        DeclareLaunchArgument('publish_raw_json', default_value='false'),
+        DeclareLaunchArgument('linear_scale', default_value='1.45'),
+        DeclareLaunchArgument('angular_scale', default_value='1.0'),
+        DeclareLaunchArgument('mixer_params_file', default_value=default_mixer_params),
+        DeclareLaunchArgument(
+            'publish_map_to_odom_tf',
+            default_value='true',
+            description='Publish identity map->odom for local coverage maps. Disable if a global localization source publishes map->odom.',
+        ),
         DeclareLaunchArgument('start_coverage', default_value='true'),
         DeclareLaunchArgument('start_delay_sec', default_value='15.0'),
         DeclareLaunchArgument('coverage_pattern', default_value='boustrophedon'),
@@ -53,6 +86,32 @@ def generate_launch_description():
         DeclareLaunchArgument('turn_style', default_value='arc'),
         DeclareLaunchArgument('turn_radius', default_value='0.30'),
     ]
+
+    robot_stack = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(localization_launch),
+        launch_arguments={
+            'use_sim_time': use_sim_time,
+            'use_teleop': 'false',
+            'use_zed': use_zed,
+            'use_gnss': use_gnss,
+            'esp32_port': esp32_port,
+            'wheel_cmd_send_rate_hz': wheel_cmd_send_rate_hz,
+            'publish_raw_json': publish_raw_json,
+            'linear_scale': linear_scale,
+            'angular_scale': angular_scale,
+            'mixer_params_file': mixer_params_file,
+        }.items(),
+        condition=IfCondition(use_robot_stack),
+    )
+
+    map_to_odom_tf = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='static_map_to_odom',
+        output='screen',
+        arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
+        condition=IfCondition(publish_map_to_odom_tf),
+    )
 
     keepout_mask_server = Node(
         package='nav2_map_server',
@@ -127,6 +186,8 @@ def generate_launch_description():
     )
 
     return LaunchDescription(declare + [
+        robot_stack,
+        map_to_odom_tf,
         keepout_mask_server,
         keepout_info_server,
         nav2,
