@@ -191,22 +191,22 @@ class CoverageFollowWaypoints(Node):
                 p0, p1 = (x1, ly), (x0, ly)
                 yaw_lane = math.pi
 
-            # sample lane
-            for lx, ly2 in self._sample_line(p0, p1, self.waypoint_step):
+            has_next = (i != len(lane_ys) - 1)
+            lane_pts = self._sample_line(p0, p1, self.waypoint_step)
+            # exclude the lane endpoint on non-final lanes so the robot
+            # doesn't stop at the arc start before navigating to the turn goal
+            for lx, ly2 in (lane_pts[:-1] if has_next else lane_pts):
                 mx, my = self._to_map(lx, ly2)
                 poses.append(self._pose(mx, my, self.area.yaw + yaw_lane))
 
-            # turn to next lane: ONE goal at the start of the next lane.
-            # The planner finds its own path; if the robot can't reach the
-            # exact pose, stop_on_failure=false skips it and the next lane
-            # waypoints become the new target from wherever the robot is.
-            if i != len(lane_ys) - 1:
+            # turn goal: approach perpendicular (π/2) rather than the next
+            # lane heading, so the planner generates a natural direct path
+            # without requiring a 180° arc to match goal orientation
+            if has_next:
                 next_y = lane_ys[i + 1]
                 x_end = p1[0]
-                # heading of the NEXT lane (opposite of current)
-                next_lane_yaw = math.pi if forward else 0.0
                 mx, my = self._to_map(x_end, next_y)
-                poses.append(self._pose(mx, my, self.area.yaw + next_lane_yaw))
+                poses.append(self._pose(mx, my, self.area.yaw + math.pi / 2.0))
 
             forward = not forward
 
