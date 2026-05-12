@@ -8,7 +8,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 
 from geometry_msgs.msg import PoseStamped, Quaternion
-from nav2_msgs.action import FollowWaypoints
+from nav2_msgs.action import NavigateThroughPoses
 from nav_msgs.msg import Path
 from rclpy.qos import DurabilityPolicy, QoSProfile
 
@@ -47,7 +47,7 @@ class CoverageFollowWaypoints(Node):
         self.declare_parameter('turn_style', 'arc')  # arc|corner
         self.declare_parameter('turn_radius', 0.30)
 
-        self.declare_parameter('action_name', 'follow_waypoints')
+        self.declare_parameter('action_name', 'navigate_through_poses')
         self.declare_parameter('frame_id', 'map')
         self.declare_parameter('preview_path_topic', '/coverage/path')
         self.declare_parameter('autostart', True)
@@ -76,7 +76,7 @@ class CoverageFollowWaypoints(Node):
         self.frame_id = str(self.get_parameter('frame_id').value)
         self.preview_path_topic = str(self.get_parameter('preview_path_topic').value)
 
-        self._ac = ActionClient(self, FollowWaypoints, self.action_name)
+        self._ac = ActionClient(self, NavigateThroughPoses, self.action_name)
         preview_qos = QoSProfile(depth=1)
         preview_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.path_pub = self.create_publisher(Path, self.preview_path_topic, preview_qos)
@@ -131,15 +131,15 @@ class CoverageFollowWaypoints(Node):
         if self._started:
             return
         self._started = True
-        self.get_logger().info('Waiting for Nav2 FollowWaypoints...')
+        self.get_logger().info('Waiting for Nav2 NavigateThroughPoses...')
         if not self._ac.wait_for_server(timeout_sec=20.0):
-            self.get_logger().error('FollowWaypoints action server not available.')
+            self.get_logger().error('NavigateThroughPoses action server not available.')
             return
 
         poses = self.generate_coverage_poses()
         self.publish_preview(poses)
-        self.get_logger().info(f'Sending {len(poses)} {self.pattern} waypoints...')
-        goal = FollowWaypoints.Goal()
+        self.get_logger().info(f'Sending {len(poses)} {self.pattern} poses via NavigateThroughPoses...')
+        goal = NavigateThroughPoses.Goal()
         goal.poses = poses
         self._ac.send_goal_async(goal)
 
