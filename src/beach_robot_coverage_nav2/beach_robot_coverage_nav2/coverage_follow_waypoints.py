@@ -105,6 +105,12 @@ class CoverageFollowWaypoints(Node):
         self._current_y: float = self._lane_ys[0] if self._lane_ys else 0.0
         self._started = False
         self._turn_y_target: float = 0.0
+        # Turn yaw monitoring (cancel arc goal when yaw reaches next-lane heading)
+        self._in_turn: bool = False
+        self._turn_triggered: bool = False
+        self._turn_target_yaw: float = 0.0
+        self._turn_start_time = None
+        self._turn_goal_handle = None
 
         if self._as_bool(self.get_parameter('autostart').value):
             delay = float(self.get_parameter('start_delay_sec').value)
@@ -147,8 +153,42 @@ class CoverageFollowWaypoints(Node):
                     'Turns may become skid turns. Add auto_widen_lanes_for_turn:=true if needed.')
         return spacing
 
+    # Yaw error within this threshold (rad) → arc done, start next lane immediately
+    _TURN_YAW_THRESHOLD = 0.25   # ≈ 14° — triggers at ~95% of arc completion
+
     def _odom_cb(self, msg: Odometry):
         self._odom = msg
+        if self._in_turn and not self._turn_triggered:
+            self._check_turn_yaw(msg)
+
+    def _check_turn_yaw(self, msg: Odometry):
+        if self._turn_start_time is None:
+            return
+        elapsed = (self.get_clock().now() - self._turn_start_time).nanoseconds / 1e9
+        if elapsed < 1.0:   # ignore first 1 s — let the arc begin
+            return
+
+        q = msg.pose.pose.orientation
+        yaw = math.atan2(
+            2.0 * (q.w * q.z + q.x * q.y),
+            1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+        )
+        err = abs(math.atan2(
+            math.sin(yaw - self._turn_target_yaw),
+            math.cos(yaw - self._turn_target_yaw),
+        ))
+
+        if err < self._TURN_YAW_THRESHOLD:
+            self._turn_triggered = True
+            self._in_turn = False
+            self.get_logger().info(
+                f'Arc done (yaw): yaw={math.degrees(yaw):.1f}°  '
+                f'target={math.degrees(self._turn_target_yaw):.1f}°  '
+                f'err={math.degrees(err):.1f}°  → starting next lane')
+            if self._turn_goal_handle is not None:
+                self._turn_goal_handle.cancel_goal_async()
+                self._turn_goal_handle = None
+            self._after_turn()
 
     # ---- geometry ----
 
@@ -288,13 +328,14 @@ class CoverageFollowWaypoints(Node):
     # Flow per lane:
     #   _run_lane       →  FollowWaypoints (full lane including endpoint p1 = arc start)
     #   _on_lane_done   →  _run_turn (NavigateThroughPoses with arc waypoints)
-    #   _on_turn_done   →  _after_turn (read actual pose, adjust next lane y)
-    #   _run_lane       →  ...
+    #   _run_turn       →  starts _in_turn=True, monitors yaw via _check_turn_yaw
     #
-    # Arc turn: NavigateThroughPoses sends all arc waypoints from _turn_arc() at once.
-    # Nav2 plans a continuous path through every arc point → robot traces the arc shape.
-    # Arc radius = (y_target - y_cur) / 2, so it adapts when lane y drifts.
-    # After _after_turn: next lane starts from ACTUAL robot y, not planned y.
+    # Arc completes via whichever fires first:
+    #   (a) _check_turn_yaw: yaw ≈ next-lane heading → cancel goal, call _after_turn
+    #   (b) _on_turn_done: NavigateThroughPoses reaches arc endpoint normally
+    #
+    # _after_turn: reads actual robot y from /odometry/local → _current_y → _run_lane
+    # Arc radius = (y_target - y_cur) / 2 (adapts when lane y drifts).
 
     def _start_once(self):
         if self._started:
@@ -374,17 +415,22 @@ class CoverageFollowWaypoints(Node):
         self._run_turn()
 
     def _run_turn(self):
-        """Navigate arc waypoints via NavigateThroughPoses — traces the actual arc shape.
+        """Navigate arc waypoints via NavigateThroughPoses.
 
-        All arc points are sent at once so Nav2 plans a continuous path through
-        every point without stopping.  Arc radius = (y_target - y_cur) / 2, so
-        it automatically adapts when lane y drifts after drift correction.
+        Arc completes via ONE of two paths (whichever fires first):
+          (a) _check_turn_yaw: yaw reaches next-lane heading → cancel goal, start lane
+          (b) _on_turn_done:  NavigateThroughPoses reaches arc endpoint normally
         """
         y_cur = self._current_y
         y_target = self._lane_ys[self._lane_idx]
         x_end = self._x1 if self._forward else self._x0
 
         self._turn_y_target = y_target
+        self._turn_target_yaw = math.pi if self._forward else 0.0
+        self._in_turn = True
+        self._turn_triggered = False
+        self._turn_start_time = self.get_clock().now()
+        self._turn_goal_handle = None
 
         arc_pts = self._turn_arc(x_end, y_cur, y_target, self._forward)
         poses = [
@@ -399,7 +445,8 @@ class CoverageFollowWaypoints(Node):
         self.get_logger().info(
             f'Turn arc → lane {self._lane_idx + 1}: '
             f'{len(poses)} arc poses  y={y_cur:.3f}→{y_target:.3f}  '
-            f'r={(abs(y_target - y_cur) / 2.0):.3f}m')
+            f'r={(abs(y_target - y_cur) / 2.0):.3f}m  '
+            f'target_yaw={"π" if self._forward else "0"}')
 
         future = self._through_ac.send_goal_async(goal)
         future.add_done_callback(self._on_turn_accepted)
@@ -408,12 +455,17 @@ class CoverageFollowWaypoints(Node):
         handle = future.result()
         if not handle.accepted:
             self.get_logger().warn('Turn arc goal rejected — adjusting next lane from actual pose.')
+            self._in_turn = False
             self._after_turn()
             return
+        self._turn_goal_handle = handle
         handle.get_result_async().add_done_callback(self._on_turn_done)
 
     def _on_turn_done(self, future):
-        self._after_turn()
+        if not self._turn_triggered:
+            # Normal goal completion — yaw check didn't fire first
+            self._in_turn = False
+            self._after_turn()
 
     def _after_turn(self):
         """Read actual robot y and use it as the start of the next lane."""

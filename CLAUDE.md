@@ -188,7 +188,8 @@ This removes ZED from the costmap — ultrasonics only for obstacle detection.
 ### Coverage bag recording
 ```bash
 STAMP=$(date +%Y%m%d_%H%M%S)
-ros2 bag record -o ~/beach_robot_logs/coverage/coverage_boustrophedon_${STAMP} \
+ros2 bag record --include-hidden-topics \
+  -o ~/beach_robot_logs/coverage/coverage_boustrophedon_${STAMP} \
   /cmd_vel /wheel_cmd /enc_vel \
   /wheel/odom /odometry/fusion_bno /odometry/local \
   /imu/data \
