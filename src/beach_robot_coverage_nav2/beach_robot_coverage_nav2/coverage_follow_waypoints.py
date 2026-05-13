@@ -103,6 +103,9 @@ class CoverageFollowWaypoints(Node):
         self._forward = True
         self._current_y: float = self._lane_ys[0] if self._lane_ys else 0.0
         self._started = False
+        self._turn_x_end: float = 0.0
+        self._turn_y_target: float = 0.0
+        self._turn_next_yaw: float = 0.0
 
         if self._as_bool(self.get_parameter('autostart').value):
             delay = float(self.get_parameter('start_delay_sec').value)
@@ -284,13 +287,16 @@ class CoverageFollowWaypoints(Node):
     # ---- navigation: boustrophedon state machine ----
     #
     # Flow per lane:
-    #   _run_lane  →  FollowWaypoints (lane only, no arc)
-    #   _on_lane_done  →  _run_turn (NavigateToPose to arc endpoint)
-    #   _on_turn_done  →  _after_turn (read actual pose, adjust next lane y)
-    #   _run_lane  →  ...
+    #   _run_lane         →  FollowWaypoints (full lane including endpoint p1)
+    #   _on_lane_done     →  _run_turn (NavigateToPose to arc midpoint)
+    #   _on_midpoint_done →  _run_turn_endpoint (NavigateToPose to arc endpoint)
+    #   _on_turn_done     →  _after_turn (read actual pose, adjust next lane y)
+    #   _run_lane         →  ...
     #
+    # Two-step arc turn:
+    #   Step 1 — arc midpoint: (x_end ± r, y_cur + r), yaw = π/2
+    #   Step 2 — arc endpoint: (x_end, y_next),         yaw = π or 0
     # After _after_turn: next lane starts from ACTUAL robot y, not planned y.
-    # This corrects for accumulated turn error each lane instead of carrying drift.
 
     def _start_once(self):
         if self._started:
@@ -331,7 +337,6 @@ class CoverageFollowWaypoints(Node):
 
     def _run_lane(self):
         y = self._current_y
-        has_next = (self._lane_idx < len(self._lane_ys) - 1)
 
         if self._forward:
             p0, p1 = (self._x0, y), (self._x1, y)
@@ -341,10 +346,6 @@ class CoverageFollowWaypoints(Node):
             yaw_lane = math.pi
 
         pts = self._sample_line(p0, p1, self.waypoint_step)
-        # Exclude the last point on non-final lanes so the robot doesn't
-        # stop at the arc start before the NavigateToPose turn goal is sent.
-        if has_next:
-            pts = pts[:-1]
 
         poses = [
             self._pose(*self._to_map(lx, ly), self.area.yaw + yaw_lane)
@@ -375,25 +376,53 @@ class CoverageFollowWaypoints(Node):
         self._run_turn()
 
     def _run_turn(self):
-        """Send one NavigateToPose goal to the arc endpoint (start of next lane).
-
-        The robot focuses on achieving the correct heading (yaw) for the next
-        lane.  If the exact (x,y) is not reached, _after_turn reads the actual
-        robot pose and starts the next lane from that position — so lane drift
-        is corrected every turn rather than accumulating.
-        """
+        """Step 1/2: Navigate to arc midpoint (x_end ± r, y_cur + r), yaw = π/2."""
+        y_cur = self._current_y
         y_target = self._lane_ys[self._lane_idx]
+        r = self.lane_spacing / 2.0
         x_end = self._x1 if self._forward else self._x0
+        sign = 1.0 if self._forward else -1.0
         next_yaw = math.pi if self._forward else 0.0
-        mx, my = self._to_map(x_end, y_target)
+
+        self._turn_x_end = x_end
+        self._turn_y_target = y_target
+        self._turn_next_yaw = next_yaw
+
+        mid_x = x_end + sign * r
+        mid_y = y_cur + r
+        mx, my = self._to_map(mid_x, mid_y)
 
         goal = NavigateToPose.Goal()
-        goal.pose = self._pose(mx, my, self.area.yaw + next_yaw)
-        goal.behavior_tree = ''  # use default BT (coverage_navigate_to_pose.xml)
+        goal.pose = self._pose(mx, my, self.area.yaw + math.pi / 2.0)
+        goal.behavior_tree = ''
+
+        self.get_logger().info(f'Turn midpoint → ({mx:.3f}, {my:.3f}) yaw=π/2')
+
+        future = self._nav_ac.send_goal_async(goal)
+        future.add_done_callback(self._on_midpoint_accepted)
+
+    def _on_midpoint_accepted(self, future):
+        handle = future.result()
+        if not handle.accepted:
+            self.get_logger().warn('Arc midpoint goal rejected — skipping to endpoint.')
+            self._run_turn_endpoint()
+            return
+        handle.get_result_async().add_done_callback(self._on_midpoint_done)
+
+    def _on_midpoint_done(self, future):
+        self._run_turn_endpoint()
+
+    def _run_turn_endpoint(self):
+        """Step 2/2: Navigate to arc endpoint (start of next lane)."""
+        mx, my = self._to_map(self._turn_x_end, self._turn_y_target)
+
+        goal = NavigateToPose.Goal()
+        goal.pose = self._pose(mx, my, self.area.yaw + self._turn_next_yaw)
+        goal.behavior_tree = ''
 
         self.get_logger().info(
-            f'Turn → lane {self._lane_idx + 1}: '
-            f'goal ({mx:.3f}, {my:.3f}) yaw={"π" if self._forward else "0"}')
+            f'Turn endpoint → lane {self._lane_idx + 1}: '
+            f'({mx:.3f}, {my:.3f}) yaw={"π" if self._forward else "0"}')
 
         future = self._nav_ac.send_goal_async(goal)
         future.add_done_callback(self._on_turn_accepted)
@@ -401,7 +430,7 @@ class CoverageFollowWaypoints(Node):
     def _on_turn_accepted(self, future):
         handle = future.result()
         if not handle.accepted:
-            self.get_logger().warn('Turn goal rejected — adjusting next lane from actual pose.')
+            self.get_logger().warn('Turn endpoint goal rejected — adjusting next lane from actual pose.')
             self._after_turn()
             return
         handle.get_result_async().add_done_callback(self._on_turn_done)
@@ -411,7 +440,7 @@ class CoverageFollowWaypoints(Node):
 
     def _after_turn(self):
         """Read actual robot y and use it as the start of the next lane."""
-        planned_y = self._lane_ys[self._lane_idx]
+        planned_y = self._turn_y_target
         if self._odom is not None:
             actual_y = self._odom.pose.pose.position.y
             self._current_y = actual_y
