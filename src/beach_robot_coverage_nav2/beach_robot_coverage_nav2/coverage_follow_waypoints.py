@@ -8,7 +8,7 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 
 from geometry_msgs.msg import PoseStamped, Quaternion
-from nav2_msgs.action import FollowWaypoints, NavigateToPose
+from nav2_msgs.action import FollowWaypoints, NavigateToPose, NavigateThroughPoses
 from nav_msgs.msg import Odometry, Path
 from rclpy.qos import DurabilityPolicy, QoSProfile
 
@@ -86,6 +86,7 @@ class CoverageFollowWaypoints(Node):
         # Action clients
         self._follow_ac = ActionClient(self, FollowWaypoints, self.action_name)
         self._nav_ac = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        self._through_ac = ActionClient(self, NavigateThroughPoses, 'navigate_through_poses')
 
         # Robot pose from /odometry/local (map≡odom for local coverage)
         self._odom: Optional[Odometry] = None
@@ -103,9 +104,7 @@ class CoverageFollowWaypoints(Node):
         self._forward = True
         self._current_y: float = self._lane_ys[0] if self._lane_ys else 0.0
         self._started = False
-        self._turn_x_end: float = 0.0
         self._turn_y_target: float = 0.0
-        self._turn_next_yaw: float = 0.0
 
         if self._as_bool(self.get_parameter('autostart').value):
             delay = float(self.get_parameter('start_delay_sec').value)
@@ -287,15 +286,14 @@ class CoverageFollowWaypoints(Node):
     # ---- navigation: boustrophedon state machine ----
     #
     # Flow per lane:
-    #   _run_lane         →  FollowWaypoints (full lane including endpoint p1)
-    #   _on_lane_done     →  _run_turn (NavigateToPose to arc midpoint)
-    #   _on_midpoint_done →  _run_turn_endpoint (NavigateToPose to arc endpoint)
-    #   _on_turn_done     →  _after_turn (read actual pose, adjust next lane y)
-    #   _run_lane         →  ...
+    #   _run_lane       →  FollowWaypoints (full lane including endpoint p1 = arc start)
+    #   _on_lane_done   →  _run_turn (NavigateThroughPoses with arc waypoints)
+    #   _on_turn_done   →  _after_turn (read actual pose, adjust next lane y)
+    #   _run_lane       →  ...
     #
-    # Two-step arc turn:
-    #   Step 1 — arc midpoint: (x_end ± r, y_cur + r), yaw = π/2
-    #   Step 2 — arc endpoint: (x_end, y_next),         yaw = π or 0
+    # Arc turn: NavigateThroughPoses sends all arc waypoints from _turn_arc() at once.
+    # Nav2 plans a continuous path through every arc point → robot traces the arc shape.
+    # Arc radius = (y_target - y_cur) / 2, so it adapts when lane y drifts.
     # After _after_turn: next lane starts from ACTUAL robot y, not planned y.
 
     def _start_once(self):
@@ -309,12 +307,12 @@ class CoverageFollowWaypoints(Node):
             self._start_static()
             return
 
-        self.get_logger().info('Waiting for Nav2 FollowWaypoints + NavigateToPose...')
+        self.get_logger().info('Waiting for Nav2 action servers...')
         if not self._follow_ac.wait_for_server(timeout_sec=20.0):
             self.get_logger().error('FollowWaypoints action server not available.')
             return
-        if not self._nav_ac.wait_for_server(timeout_sec=20.0):
-            self.get_logger().error('NavigateToPose action server not available.')
+        if not self._through_ac.wait_for_server(timeout_sec=20.0):
+            self.get_logger().error('NavigateThroughPoses action server not available.')
             return
 
         self._lane_idx = 0
@@ -376,61 +374,40 @@ class CoverageFollowWaypoints(Node):
         self._run_turn()
 
     def _run_turn(self):
-        """Step 1/2: Navigate to arc midpoint (x_end ± r, y_cur + r), yaw = π/2."""
+        """Navigate arc waypoints via NavigateThroughPoses — traces the actual arc shape.
+
+        All arc points are sent at once so Nav2 plans a continuous path through
+        every point without stopping.  Arc radius = (y_target - y_cur) / 2, so
+        it automatically adapts when lane y drifts after drift correction.
+        """
         y_cur = self._current_y
         y_target = self._lane_ys[self._lane_idx]
-        r = self.lane_spacing / 2.0
         x_end = self._x1 if self._forward else self._x0
-        sign = 1.0 if self._forward else -1.0
-        next_yaw = math.pi if self._forward else 0.0
 
-        self._turn_x_end = x_end
         self._turn_y_target = y_target
-        self._turn_next_yaw = next_yaw
 
-        mid_x = x_end + sign * r
-        mid_y = y_cur + r
-        mx, my = self._to_map(mid_x, mid_y)
+        arc_pts = self._turn_arc(x_end, y_cur, y_target, self._forward)
+        poses = [
+            self._pose(*self._to_map(lx, ly), self.area.yaw + lyaw)
+            for lx, ly, lyaw in arc_pts
+        ]
 
-        goal = NavigateToPose.Goal()
-        goal.pose = self._pose(mx, my, self.area.yaw + math.pi / 2.0)
-        goal.behavior_tree = ''
-
-        self.get_logger().info(f'Turn midpoint → ({mx:.3f}, {my:.3f}) yaw=π/2')
-
-        future = self._nav_ac.send_goal_async(goal)
-        future.add_done_callback(self._on_midpoint_accepted)
-
-    def _on_midpoint_accepted(self, future):
-        handle = future.result()
-        if not handle.accepted:
-            self.get_logger().warn('Arc midpoint goal rejected — skipping to endpoint.')
-            self._run_turn_endpoint()
-            return
-        handle.get_result_async().add_done_callback(self._on_midpoint_done)
-
-    def _on_midpoint_done(self, future):
-        self._run_turn_endpoint()
-
-    def _run_turn_endpoint(self):
-        """Step 2/2: Navigate to arc endpoint (start of next lane)."""
-        mx, my = self._to_map(self._turn_x_end, self._turn_y_target)
-
-        goal = NavigateToPose.Goal()
-        goal.pose = self._pose(mx, my, self.area.yaw + self._turn_next_yaw)
+        goal = NavigateThroughPoses.Goal()
+        goal.poses = poses
         goal.behavior_tree = ''
 
         self.get_logger().info(
-            f'Turn endpoint → lane {self._lane_idx + 1}: '
-            f'({mx:.3f}, {my:.3f}) yaw={"π" if self._forward else "0"}')
+            f'Turn arc → lane {self._lane_idx + 1}: '
+            f'{len(poses)} arc poses  y={y_cur:.3f}→{y_target:.3f}  '
+            f'r={(abs(y_target - y_cur) / 2.0):.3f}m')
 
-        future = self._nav_ac.send_goal_async(goal)
+        future = self._through_ac.send_goal_async(goal)
         future.add_done_callback(self._on_turn_accepted)
 
     def _on_turn_accepted(self, future):
         handle = future.result()
         if not handle.accepted:
-            self.get_logger().warn('Turn endpoint goal rejected — adjusting next lane from actual pose.')
+            self.get_logger().warn('Turn arc goal rejected — adjusting next lane from actual pose.')
             self._after_turn()
             return
         handle.get_result_async().add_done_callback(self._on_turn_done)
