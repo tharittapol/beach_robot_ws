@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!--
   Behavior tree for coverage navigation waypoints.
-  - Replans at 1 Hz while following the path
+  - Replans at 0.5 Hz while following the path (avoid mid-arc disruption)
   - On failure: clears costmaps once and retries
   - NO spin / NO backup recovery
   - If still failing after one retry → FAILURE
@@ -11,7 +11,7 @@
   <BehaviorTree ID="MainTree">
     <RecoveryNode number_of_retries="1" name="NavigateRecovery">
       <PipelineSequence name="NavigateWithReplanning">
-        <RateController hz="1.0">
+        <RateController hz="0.5">
           <RecoveryNode number_of_retries="1" name="ComputePathRecovery">
             <ComputePathToPose goal="{goal}" path="{path}" planner_id="GridBased" error_code_id="{compute_path_error_code}"/>
             <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
