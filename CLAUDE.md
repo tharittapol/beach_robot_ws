@@ -162,18 +162,9 @@ ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
   coverage_pattern:=boustrophedon \
   area_origin_x:=0.0 area_origin_y:=0.0 \
   area_width:=2.0 area_height:=1.8 area_yaw:=0.0 \
-  lane_spacing:=0.60 turn_radius:=0.30 \
+  lane_spacing:=1.80 turn_radius:=0.90 \
   boundary_margin:=0.0 angular_scale:=1.0
 ```
-<!-- ```bash
-ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
-  start_coverage:=false \
-  coverage_pattern:=spiral \
-  area_origin_x:=0.0 area_origin_y:=0.0 \
-  area_width:=3.0 area_height:=1.8 area_yaw:=0.0 \
-  lane_spacing:=0.60 turn_radius:=0.30 \
-  boundary_margin:=0.0
-``` -->
 Open RViz2 and visualise `/coverage/path_viz` (type: Path, frame: map, republish 3 sec, QoS: volatile).
 Verify the lane pattern covers the expected rectangle.
 
@@ -184,37 +175,9 @@ ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
   coverage_pattern:=boustrophedon \
   area_origin_x:=0.0 area_origin_y:=0.0 \
   area_width:=2.0 area_height:=1.8 area_yaw:=0.0 \
-  lane_spacing:=0.60 turn_radius:=0.30 \
+  lane_spacing:=1.80 turn_radius:=0.90 \
   boundary_margin:=0.0 angular_scale:=1.0
 ```
-
-<!-- ### Step 3 — Spiral pattern
-```bash
-ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
-  start_coverage:=true \
-  coverage_pattern:=spiral \
-  area_origin_x:=0.0 area_origin_y:=0.0 \
-  area_width:=10.0 area_height:=5.0 area_yaw:=0.0 \
-  lane_spacing:=0.60 turn_radius:=0.30
-``` -->
-
-### If 0.30 m turn radius is too tight
-```bash
-ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
-  coverage_pattern:=boustrophedon \
-  lane_spacing:=0.60 turn_radius:=0.80 \
-  auto_widen_lanes_for_turn:=true
-```
-```bash
-ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
-  start_coverage:=true \
-  coverage_pattern:=boustrophedon \
-  area_origin_x:=0.0 area_origin_y:=0.0 \
-  area_width:=2.0 area_height:=1.8 area_yaw:=0.0 \
-  lane_spacing:=0.60 turn_radius:=0.60 \
-  boundary_margin:=0.0 angular_scale:=1.0 \ auto_widen_lanes_for_turn:=true
-```
-`auto_widen_lanes_for_turn` will widen lane_spacing to `2×turn_radius` (1.20 m) automatically.
 
 ### Flags when ZED is not available
 ```bash
@@ -226,10 +189,14 @@ This removes ZED from the costmap — ultrasonics only for obstacle detection.
 ```bash
 STAMP=$(date +%Y%m%d_%H%M%S)
 ros2 bag record -o ~/beach_robot_logs/coverage/coverage_boustrophedon_${STAMP} \
-  /cmd_vel /wheel_cmd \
-  /wheel/odom \
-  /odometry/fusion_bno /odometry/local \
+  /cmd_vel /wheel_cmd /enc_vel \
+  /wheel/odom /odometry/fusion_bno /odometry/local \
+  /imu/data \
   /coverage/path \
+  /plan /local_plan \
+  /follow_waypoints/_action/feedback \
+  /navigate_through_poses/_action/feedback \
+  /local_costmap/costmap /global_costmap/costmap \
   /tf /tf_static
 ```
 
@@ -274,3 +241,30 @@ colcon build --symlink-install
 | `drive_straight_odom.py` | Commanded straight-drive + odom validation |
 | `analyze_spin_tune.py` | Angular velocity tuning analysis |
 | `wheel_response_test.py` | Step-response per wheel |
+| `coverage_bag_report.py` | Post-process coverage bag → CSV tables for thesis |
+
+### `coverage_bag_report` — usage
+
+```bash
+# After sourcing workspace:
+ros2 run beach_robot_bringup coverage_bag_report \
+  ~/beach_robot_logs/coverage/coverage_boustrophedon_20260513_120000 \
+  [--out ~/thesis_data/run1]
+
+# Or run directly (no colcon build needed):
+python3 src/beach_robot_bringup/beach_robot_bringup/tools/coverage_bag_report.py \
+  <bag_path> [--out <output_dir>] [--min-lane-sec 2.0]
+```
+
+**Output CSV files:**
+
+| File | Contents |
+|------|---------|
+| `pose_trajectory.csv` | time, x, y, yaw, phase (straight_forward/backward/turn/idle), cmd_vel |
+| `cmd_vel.csv` | time series of linear_x and angular_z commands |
+| `wheel_speeds.csv` | wheel_cmd and enc_vel per wheel (FL/FR/RL/RR) |
+| `lane_tracking.csv` | per lane: planned_y, actual_y start/end/mean, y errors, timing, x range |
+| `turn_tracking.csv` | per turn: y before/after, planned vs actual y_end, y error, duration |
+| `coverage_summary.csv` | totals: duration, lanes, mean/max/RMS y error, mean vel, area |
+
+**Phase detection**: uses `|angular_z| > 0.15 rad/s` to classify straight vs turn phases. Short straight blips (< 2s) are merged into adjacent turns. Adjust `--min-lane-sec` if lanes are misclassified.

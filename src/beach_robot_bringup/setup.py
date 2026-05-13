@@ -38,6 +38,7 @@ setup(
             'spin_tune_analyze = beach_robot_bringup.tools.analyze_spin_tune:main',
             'localization_pose_report = beach_robot_bringup.tools.localization_pose_report:main',
             'drive_straight_odom = beach_robot_bringup.tools.drive_straight_odom:main',
+            'coverage_bag_report = beach_robot_bringup.tools.coverage_bag_report:main',
         ],
     },
 )
