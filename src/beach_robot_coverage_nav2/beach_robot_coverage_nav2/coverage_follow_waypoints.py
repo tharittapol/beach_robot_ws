@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 import math
 from dataclasses import dataclass
+from functools import partial
 from typing import List, Tuple, Optional
 
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 
-from geometry_msgs.msg import PoseStamped, Quaternion
+from geometry_msgs.msg import PoseStamped, Quaternion, Twist
 from nav2_msgs.action import FollowWaypoints, NavigateToPose, NavigateThroughPoses
 from nav_msgs.msg import Odometry, Path
+from std_msgs.msg import Float32
 from rclpy.qos import DurabilityPolicy, QoSProfile
+
+from .obstacle_detector import FrontConeMonitor
 
 
 def quaternion_from_yaw(yaw: float):
@@ -53,6 +57,20 @@ class CoverageFollowWaypoints(Node):
         self.declare_parameter('autostart', True)
         self.declare_parameter('start_delay_sec', 5.0)
 
+        # --- auto-mode obstacle stop (ZED front cone) ---
+        self.declare_parameter('obstacle_stop.enabled', True)
+        self.declare_parameter('obstacle_stop.cloud_topic', '/zed/filtered_cloud')
+        self.declare_parameter('obstacle_stop.stop_distance', 2.0)
+        self.declare_parameter('obstacle_stop.cone_half_width', 0.8)
+        self.declare_parameter('obstacle_stop.min_z', 0.12)
+        self.declare_parameter('obstacle_stop.max_z', 1.5)
+        self.declare_parameter('obstacle_stop.min_points', 5)
+        self.declare_parameter('obstacle_stop.clear_time_sec', 3.0)
+        self.declare_parameter('obstacle_stop.beep_period_sec', 1.0)
+        self.declare_parameter('obstacle_stop.beep_duration_sec', 0.4)
+        self.declare_parameter('cmd_vel_topic', '/cmd_vel')
+        self.declare_parameter('buzzer_topic', 'buzzer_duration')
+
         self.area = RectArea(
             origin_x=float(self.get_parameter('area.origin_x').value),
             origin_y=float(self.get_parameter('area.origin_y').value),
@@ -75,6 +93,19 @@ class CoverageFollowWaypoints(Node):
         self.action_name = str(self.get_parameter('action_name').value)
         self.frame_id = str(self.get_parameter('frame_id').value)
         self.preview_path_topic = str(self.get_parameter('preview_path_topic').value)
+
+        self.obstacle_enabled = self._as_bool(self.get_parameter('obstacle_stop.enabled').value)
+        self.obstacle_cloud_topic = str(self.get_parameter('obstacle_stop.cloud_topic').value)
+        self.obstacle_stop_distance = float(self.get_parameter('obstacle_stop.stop_distance').value)
+        self.obstacle_cone_half_width = float(self.get_parameter('obstacle_stop.cone_half_width').value)
+        self.obstacle_min_z = float(self.get_parameter('obstacle_stop.min_z').value)
+        self.obstacle_max_z = float(self.get_parameter('obstacle_stop.max_z').value)
+        self.obstacle_min_points = int(self.get_parameter('obstacle_stop.min_points').value)
+        self.obstacle_clear_time_sec = float(self.get_parameter('obstacle_stop.clear_time_sec').value)
+        self.beep_period_sec = max(0.2, float(self.get_parameter('obstacle_stop.beep_period_sec').value))
+        self.beep_duration_sec = float(self.get_parameter('obstacle_stop.beep_duration_sec').value)
+        self.cmd_vel_topic = str(self.get_parameter('cmd_vel_topic').value)
+        self.buzzer_topic = str(self.get_parameter('buzzer_topic').value)
 
         # Pre-compute geometry (used by both preview and nav)
         self._x0 = self.margin
@@ -111,6 +142,37 @@ class CoverageFollowWaypoints(Node):
         self._turn_target_yaw: float = 0.0
         self._turn_start_time = None
         self._turn_goal_handle = None
+        self._lane_goal_handle = None
+
+        # Obstacle-stop state.
+        # _nav_epoch tags every goal we send; a result whose epoch != current is stale
+        # (its goal was cancelled for an obstacle) and must not advance the state machine.
+        self._phase = 'idle'            # 'idle' | 'lane' | 'turn'
+        self._nav_epoch = 0
+        self._paused = False
+        self._obstacle_present = False
+        self._clear_start = None
+
+        # Obstacle-stop IO (cmd_vel override + buzzer + ZED front-cone monitor)
+        self._cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
+        self._buzzer_pub = self.create_publisher(Float32, self.buzzer_topic, 10)
+        if self.obstacle_enabled:
+            self._monitor = FrontConeMonitor(
+                self, self._on_obstacle_update,
+                cloud_topic=self.obstacle_cloud_topic,
+                stop_distance=self.obstacle_stop_distance,
+                cone_half_width=self.obstacle_cone_half_width,
+                min_z=self.obstacle_min_z,
+                max_z=self.obstacle_max_z,
+                min_points=self.obstacle_min_points,
+            )
+            # Always-on timers; they only act while _paused.
+            self.create_timer(1.0 / 20.0, self._override_cmd_cb)
+            self.create_timer(self.beep_period_sec, self._beep_cb)
+            self.get_logger().info(
+                f'Obstacle-stop enabled: stop<{self.obstacle_stop_distance:.1f}m '
+                f'cone±{self.obstacle_cone_half_width:.1f}m resume after '
+                f'{self.obstacle_clear_time_sec:.0f}s clear')
 
         if self._as_bool(self.get_parameter('autostart').value):
             delay = float(self.get_parameter('start_delay_sec').value)
@@ -158,11 +220,11 @@ class CoverageFollowWaypoints(Node):
 
     def _odom_cb(self, msg: Odometry):
         self._odom = msg
-        if self._in_turn and not self._turn_triggered:
+        if self._in_turn and not self._turn_triggered and not self._paused:
             self._check_turn_yaw(msg)
 
     def _check_turn_yaw(self, msg: Odometry):
-        if self._turn_start_time is None:
+        if self._turn_start_time is None or self._paused:
             return
         elapsed = (self.get_clock().now() - self._turn_start_time).nanoseconds / 1e9
         if elapsed < 1.0:   # ignore first 1 s — let the arc begin
@@ -374,14 +436,20 @@ class CoverageFollowWaypoints(Node):
         goal.poses = poses
         self._follow_ac.send_goal_async(goal)
 
-    def _run_lane(self):
+    def _run_lane(self, start_x=None):
+        """Drive the current lane. ``start_x`` overrides the lane start (used on resume
+        after an obstacle stop, to continue from the robot's current x rather than the
+        lane's far end)."""
+        self._phase = 'lane'
         y = self._current_y
 
         if self._forward:
-            p0, p1 = (self._x0, y), (self._x1, y)
+            x_start = self._x0 if start_x is None else start_x
+            p0, p1 = (x_start, y), (self._x1, y)
             yaw_lane = 0.0
         else:
-            p0, p1 = (self._x1, y), (self._x0, y)
+            x_start = self._x1 if start_x is None else start_x
+            p0, p1 = (x_start, y), (self._x0, y)
             yaw_lane = math.pi
 
         pts = self._sample_line(p0, p1, self.waypoint_step)
@@ -391,26 +459,42 @@ class CoverageFollowWaypoints(Node):
             for lx, ly in pts
         ]
         arrow = '→' if self._forward else '←'
+        resumed = '' if start_x is None else ' (resumed)'
         self.get_logger().info(
             f'Lane {self._lane_idx + 1}/{len(self._lane_ys)} '
-            f'y={y:.3f} {arrow}  {len(poses)} waypoints')
+            f'y={y:.3f} {arrow}  {len(poses)} waypoints{resumed}')
 
+        self._nav_epoch += 1
+        epoch = self._nav_epoch
         goal = FollowWaypoints.Goal()
         goal.poses = poses
         future = self._follow_ac.send_goal_async(goal)
-        future.add_done_callback(self._on_lane_accepted)
+        future.add_done_callback(partial(self._on_lane_accepted, epoch=epoch))
 
-    def _on_lane_accepted(self, future):
+    def _on_lane_accepted(self, future, epoch):
         handle = future.result()
+        if epoch != self._nav_epoch:
+            # Paused/superseded before this goal was accepted: cancel the orphan so the
+            # controller stops pursuing it. A dropped ClientGoalHandle is NOT auto-cancelled
+            # — without this the robot would keep driving against the stop override.
+            if handle.accepted:
+                handle.cancel_goal_async()
+            return
         if not handle.accepted:
             self.get_logger().error('Lane goal rejected by FollowWaypoints server.')
             return
-        handle.get_result_async().add_done_callback(self._on_lane_done)
+        self._lane_goal_handle = handle
+        handle.get_result_async().add_done_callback(
+            partial(self._on_lane_done, epoch=epoch))
 
-    def _on_lane_done(self, future):
+    def _on_lane_done(self, future, epoch):
+        if epoch != self._nav_epoch or self._paused:
+            return  # stale result from a cancelled goal — do not advance
+        self._lane_goal_handle = None
         self._lane_idx += 1
         if self._lane_idx >= len(self._lane_ys):
             self.get_logger().info('Coverage complete!')
+            self._phase = 'idle'
             return
         self._run_turn()
 
@@ -421,6 +505,7 @@ class CoverageFollowWaypoints(Node):
           (a) _check_turn_yaw: yaw reaches next-lane heading → cancel goal, start lane
           (b) _on_turn_done:  NavigateThroughPoses reaches arc endpoint normally
         """
+        self._phase = 'turn'
         y_cur = self._current_y
         y_target = self._lane_ys[self._lane_idx]
         x_end = self._x1 if self._forward else self._x0
@@ -448,20 +533,29 @@ class CoverageFollowWaypoints(Node):
             f'r={(abs(y_target - y_cur) / 2.0):.3f}m  '
             f'target_yaw={"π" if self._forward else "0"}')
 
+        self._nav_epoch += 1
+        epoch = self._nav_epoch
         future = self._through_ac.send_goal_async(goal)
-        future.add_done_callback(self._on_turn_accepted)
+        future.add_done_callback(partial(self._on_turn_accepted, epoch=epoch))
 
-    def _on_turn_accepted(self, future):
+    def _on_turn_accepted(self, future, epoch):
         handle = future.result()
+        if epoch != self._nav_epoch:
+            if handle.accepted:
+                handle.cancel_goal_async()  # superseded before accept — cancel the orphan
+            return
         if not handle.accepted:
             self.get_logger().warn('Turn arc goal rejected — adjusting next lane from actual pose.')
             self._in_turn = False
             self._after_turn()
             return
         self._turn_goal_handle = handle
-        handle.get_result_async().add_done_callback(self._on_turn_done)
+        handle.get_result_async().add_done_callback(
+            partial(self._on_turn_done, epoch=epoch))
 
-    def _on_turn_done(self, future):
+    def _on_turn_done(self, future, epoch):
+        if epoch != self._nav_epoch or self._paused:
+            return
         if not self._turn_triggered:
             # Normal goal completion — yaw check didn't fire first
             self._in_turn = False
@@ -483,6 +577,70 @@ class CoverageFollowWaypoints(Node):
 
         self._forward = not self._forward
         self._run_lane()
+
+    # ---- auto-mode obstacle stop ----
+    #
+    # The ZED front-cone monitor calls _on_obstacle_update on every cloud (~10 Hz).
+    # We only pause during a LANE (not a turn): turns are short, and mid-arc the robot
+    # is bulged out to the side so there is no clean "remaining arc" to resume — if an
+    # obstacle persists through the turn, the pause engages the instant the next lane
+    # starts. On pause we cancel the active Nav2 goal (so the progress checker can't
+    # abort and skip a lane), zero /cmd_vel for a crisp stop, and beep. On 3 s of clear
+    # we re-send the lane from the robot's current x.
+
+    def _now_sec(self) -> float:
+        return self.get_clock().now().nanoseconds / 1e9
+
+    def _on_obstacle_update(self, present: bool, nearest_x):
+        self._obstacle_present = present
+        if self._paused:
+            if present:
+                self._clear_start = None          # restart the clear timer
+            else:
+                now = self._now_sec()
+                if self._clear_start is None:
+                    self._clear_start = now
+                elif (now - self._clear_start) >= self.obstacle_clear_time_sec:
+                    self._resume_after_clear()
+        else:
+            if present and self._started and self._phase == 'lane':
+                self._pause_for_obstacle(nearest_x)
+
+    def _pause_for_obstacle(self, nearest_x):
+        self._paused = True
+        self._clear_start = None
+        # Invalidate any in-flight goal's result callback, then cancel it.
+        self._nav_epoch += 1
+        if self._lane_goal_handle is not None:
+            self._lane_goal_handle.cancel_goal_async()
+            self._lane_goal_handle = None
+        if self._turn_goal_handle is not None:
+            self._turn_goal_handle.cancel_goal_async()
+            self._turn_goal_handle = None
+        self._in_turn = False
+        dist = f'{nearest_x:.2f} m' if nearest_x is not None else 'unknown'
+        self.get_logger().warn(f'Obstacle at {dist} → STOP + buzzer; pausing coverage.')
+
+    def _resume_after_clear(self):
+        self._paused = False
+        self._clear_start = None
+        self.get_logger().info(
+            f'Path clear ≥ {self.obstacle_clear_time_sec:.0f}s → resuming lane.')
+        start_x = None
+        if self._odom is not None:
+            start_x = self._odom.pose.pose.position.x
+        self._run_lane(start_x=start_x)
+
+    def _override_cmd_cb(self):
+        # While paused, hold the robot stopped (also feeds the mixer's 0.3 s watchdog).
+        if self._paused:
+            self._cmd_pub.publish(Twist())
+
+    def _beep_cb(self):
+        if self._paused:
+            msg = Float32()
+            msg.data = float(self.beep_duration_sec)
+            self._buzzer_pub.publish(msg)
 
     # ---- spiral (static, not dynamically adjusted) ----
 

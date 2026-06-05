@@ -38,6 +38,10 @@ def generate_launch_description():
     waypoint_step = LaunchConfiguration('waypoint_step')
     turn_style = LaunchConfiguration('turn_style')
     turn_radius = LaunchConfiguration('turn_radius')
+    obstacle_stop_enabled = LaunchConfiguration('obstacle_stop_enabled')
+    obstacle_stop_distance = LaunchConfiguration('obstacle_stop_distance')
+    obstacle_cone_half_width = LaunchConfiguration('obstacle_cone_half_width')
+    obstacle_clear_time_sec = LaunchConfiguration('obstacle_clear_time_sec')
 
     pkg = get_package_share_directory('beach_robot_coverage_nav2')
     localization_pkg = get_package_share_directory('beach_robot_localization')
@@ -85,6 +89,11 @@ def generate_launch_description():
         DeclareLaunchArgument('waypoint_step', default_value='1.0'),
         DeclareLaunchArgument('turn_style', default_value='arc'),
         DeclareLaunchArgument('turn_radius', default_value='0.30'),
+        # --- auto-mode obstacle stop (ZED front cone) ---
+        DeclareLaunchArgument('obstacle_stop_enabled', default_value='true'),
+        DeclareLaunchArgument('obstacle_stop_distance', default_value='2.0'),
+        DeclareLaunchArgument('obstacle_cone_half_width', default_value='0.8'),
+        DeclareLaunchArgument('obstacle_clear_time_sec', default_value='3.0'),
     ]
 
     robot_stack = IncludeLaunchDescription(
@@ -198,6 +207,12 @@ def generate_launch_description():
             # --- turn ---
             'turn_style': turn_style,
             'turn_radius': turn_radius,
+
+            # --- auto-mode obstacle stop (ZED front cone) ---
+            'obstacle_stop.enabled': obstacle_stop_enabled,
+            'obstacle_stop.stop_distance': obstacle_stop_distance,
+            'obstacle_stop.cone_half_width': obstacle_cone_half_width,
+            'obstacle_stop.clear_time_sec': obstacle_clear_time_sec,
 
             # --- run ---
             'autostart': start_coverage,

@@ -261,6 +261,14 @@ class Teleop4WDSkid(Node):
             if not self.estop_active:
                 self.estop_active = True
                 self.get_logger().warn('E-STOP activated by Y button')
+                # Safety: force the vibration sieve off on E-STOP so the motor
+                # never keeps running while the robot is halted.
+                if self.vibration_on:
+                    self.vibration_on = False
+                    vmsg = Bool()
+                    vmsg.data = False
+                    self.pub_vibration.publish(vmsg)
+                    self.get_logger().warn('Vibration motor forced OFF by E-STOP')
             self.y_press_start = now
         elif y_pressed and self.prev_y:
             if (self.estop_active
