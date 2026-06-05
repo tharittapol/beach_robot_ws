@@ -57,6 +57,14 @@ class CoverageFollowWaypoints(Node):
         self.declare_parameter('autostart', True)
         self.declare_parameter('start_delay_sec', 5.0)
 
+        # --- multipass coverage (interleaved passes for 100% coverage) ---
+        # num_passes>1: lay fine lanes at lane_spacing/num_passes (= tool_width) and run
+        # them as N interleaved passes; in-pass lanes stay lane_spacing apart (arc turns),
+        # the offsets fill the gaps. Between passes the robot loops outside the work area.
+        self.declare_parameter('num_passes', 1)
+        self.declare_parameter('deadhead_style', 'outside')   # outside|direct
+        self.declare_parameter('deadhead_clearance', 0.9)
+
         # --- auto-mode obstacle stop (ZED front cone) ---
         self.declare_parameter('obstacle_stop.enabled', True)
         self.declare_parameter('obstacle_stop.cloud_topic', '/zed/filtered_cloud')
@@ -88,6 +96,10 @@ class CoverageFollowWaypoints(Node):
         self.waypoint_step = max(0.10, float(self.get_parameter('waypoint_step').value))
         self.turn_style = str(self.get_parameter('turn_style').value).lower()
         self.turn_radius = max(0.0, float(self.get_parameter('turn_radius').value))
+        self.num_passes = max(1, int(self.get_parameter('num_passes').value))
+        self.deadhead_style = str(self.get_parameter('deadhead_style').value).lower()
+        self.deadhead_clearance = max(
+            float(self.get_parameter('deadhead_clearance').value), self.turn_radius)
         self.lane_spacing = self._effective_lane_spacing()
 
         self.action_name = str(self.get_parameter('action_name').value)
@@ -110,9 +122,34 @@ class CoverageFollowWaypoints(Node):
         # Pre-compute geometry (used by both preview and nav)
         self._x0 = self.margin
         self._x1 = max(self.margin, self.area.width - self.margin)
-        _y0 = self.margin
-        _y1 = max(self.margin, self.area.height - self.margin)
-        self._lane_ys: List[float] = self._lane_values(_y0, _y1, self.lane_spacing)
+        self._y0 = self.margin
+        self._y1 = max(self.margin, self.area.height - self.margin)
+        # _lane_ys is the lane y's in execution order; _lane_pass[i] is which pass lane i
+        # belongs to (a change in _lane_pass between consecutive lanes ⇒ a between-pass
+        # deadhead instead of an in-pass arc turn).
+        if self.num_passes > 1:
+            fine = self._lane_values(self._y0, self._y1, self.lane_spacing / self.num_passes)
+            self._lane_ys = []
+            self._lane_pass = []
+            for p in range(self.num_passes):
+                for y in fine[p::self.num_passes]:
+                    self._lane_ys.append(y)
+                    self._lane_pass.append(p)
+        else:
+            self._lane_ys = self._lane_values(self._y0, self._y1, self.lane_spacing)
+            self._lane_pass = [0] * len(self._lane_ys)
+
+        # Guard: for gap-free, non-overlapping interleaved passes the fine spacing
+        # (lane_spacing / num_passes) must equal the tool width.
+        if self.num_passes > 1:
+            fine_sp = self.lane_spacing / self.num_passes
+            if abs(fine_sp - self.tool_width) > 0.1 * self.tool_width:
+                self.get_logger().warn(
+                    f'num_passes={self.num_passes}: fine spacing '
+                    f'lane_spacing/num_passes={fine_sp:.2f}m ≠ tool_width={self.tool_width:.2f}m '
+                    f'→ passes will overlap or leave gaps. For 100% no-overlap set '
+                    f'lane_spacing = num_passes×tool_width = '
+                    f'{self.num_passes * self.tool_width:.2f}m.')
 
         # Action clients
         self._follow_ac = ActionClient(self, FollowWaypoints, self.action_name)
@@ -143,6 +180,9 @@ class CoverageFollowWaypoints(Node):
         self._turn_start_time = None
         self._turn_goal_handle = None
         self._lane_goal_handle = None
+        # Between-pass deadhead bookkeeping
+        self._deadhead_next_y: float = 0.0
+        self._deadhead_new_forward: bool = True
 
         # Obstacle-stop state.
         # _nav_epoch tags every goal we send; a result whose epoch != current is stale
@@ -187,8 +227,10 @@ class CoverageFollowWaypoints(Node):
         self.get_logger().info(
             f'Coverage planner: pattern={self.pattern} '
             f'area={self.area.width:.2f}×{self.area.height:.2f}m '
-            f'lanes={len(self._lane_ys)} spacing={self.lane_spacing:.2f}m '
-            f'turn_radius={self.turn_radius:.2f}m'
+            f'passes={self.num_passes} lanes={len(self._lane_ys)} '
+            f'in-pass spacing={self.lane_spacing:.2f}m '
+            f'turn_radius={self.turn_radius:.2f}m '
+            f'deadhead={self.deadhead_style}'
         )
 
     # ---- helpers ----
@@ -338,7 +380,11 @@ class CoverageFollowWaypoints(Node):
         return self._boustrophedon_preview(self._lane_ys)
 
     def _boustrophedon_preview(self, lane_ys: List[float]) -> List[PoseStamped]:
-        """S-shape path with arc curves — for visualization only."""
+        """Full route preview: lanes + in-pass arc turns + between-pass deadhead loops.
+
+        Mirrors the navigation dispatch (same nearest-side rule), so /coverage/path[_viz]
+        shows the true planned route. With num_passes==1 every transition is an arc, i.e.
+        the original single-pass S-shape."""
         x0, x1 = self._x0, self._x1
         poses: List[PoseStamped] = []
         forward = True
@@ -354,15 +400,26 @@ class CoverageFollowWaypoints(Node):
                 mx, my = self._to_map(lx, ly2)
                 poses.append(self._pose(mx, my, self.area.yaw + yaw_lane))
 
-            # Arc curve into next lane (makes S-shape in RViz2)
-            if i < len(lane_ys) - 1:
-                x_end = p1[0]
-                y_next = lane_ys[i + 1]
-                for lx, lya, lyaw in self._turn_arc(x_end, ly, y_next, forward):
+            if i >= len(lane_ys) - 1:
+                break
+
+            end_x = p1[0]
+            next_y = lane_ys[i + 1]
+            same_pass = self._lane_pass[i + 1] == self._lane_pass[i]
+            if same_pass:
+                # in-pass arc turn (S-shape)
+                for lx, lya, lyaw in self._turn_arc(end_x, ly, next_y, forward):
                     mx, my = self._to_map(lx, lya)
                     poses.append(self._pose(mx, my, self.area.yaw + lyaw))
-
-            forward = not forward
+                forward = not forward
+            else:
+                # between-pass deadhead loop (outside the work area)
+                new_forward = abs(end_x - self._x0) < abs(end_x - self._x1)
+                start_x = self._x0 if new_forward else self._x1
+                for lx, lya, lyaw in self._deadhead_path((end_x, ly), (start_x, next_y)):
+                    mx, my = self._to_map(lx, lya)
+                    poses.append(self._pose(mx, my, self.area.yaw + lyaw))
+                forward = new_forward
         return poses
 
     def publish_preview(self, poses=None):
@@ -496,7 +553,11 @@ class CoverageFollowWaypoints(Node):
             self.get_logger().info('Coverage complete!')
             self._phase = 'idle'
             return
-        self._run_turn()
+        # Same pass → in-pass arc S-turn; new pass → loop outside to the next pass.
+        if self._lane_pass[self._lane_idx] == self._lane_pass[self._lane_idx - 1]:
+            self._run_turn()
+        else:
+            self._run_deadhead()
 
     def _run_turn(self):
         """Navigate arc waypoints via NavigateThroughPoses.
@@ -576,6 +637,104 @@ class CoverageFollowWaypoints(Node):
             self.get_logger().warn('No odometry — using planned y for next lane.')
 
         self._forward = not self._forward
+        self._run_lane()
+
+    # ---- between-pass deadhead (multipass coverage) ----
+    #
+    # Between two passes the lanes are only tool_width apart, too tight for an in-pass arc,
+    # so the robot repositions by looping OUTSIDE the work rectangle to the next pass's
+    # first lane. Path = perimeter waypoints; RegulatedPurePursuit rounds the corners as
+    # long as the clearance ≥ turn_radius. Uses NavigateThroughPoses (same as arc turns).
+
+    def _deadhead_path(self, a, b):
+        """Waypoints from lane-end a=(xa,ya) to next-lane-start b=(xb,yb), in local coords.
+        'direct' → straight line (Nav2 plans around obstacles); 'outside' → out to the near
+        outer edge, along the outer perimeter, back in."""
+        xa, ya = a
+        xb, yb = b
+        if self.deadhead_style == 'direct':
+            yaw = math.atan2(yb - ya, xb - xa)
+            return [(lx, ly, yaw) for lx, ly in self._sample_line(a, b, self.waypoint_step)]
+
+        clr = self.deadhead_clearance
+        xa_out = self._x1 + clr if abs(xa - self._x1) < abs(xa - self._x0) else self._x0 - clr
+        xb_out = self._x1 + clr if abs(xb - self._x1) < abs(xb - self._x0) else self._x0 - clr
+
+        corners = [a, (xa_out, ya)]                       # straight out to the near rail
+        if abs(xa_out - xb_out) < 1e-6:
+            corners.append((xb_out, yb))                  # same side: straight along the rail
+        else:
+            # opposite sides: go around the nearer (bottom or top) outer rail
+            d_bot = (ya - self._y0) + (yb - self._y0)
+            d_top = (self._y1 - ya) + (self._y1 - yb)
+            y_rail = (self._y0 - clr) if d_bot <= d_top else (self._y1 + clr)
+            corners += [(xa_out, y_rail), (xb_out, y_rail), (xb_out, yb)]
+        corners.append(b)                                 # straight back in
+
+        pts = []
+        for p0, p1 in zip(corners[:-1], corners[1:]):
+            yaw = math.atan2(p1[1] - p0[1], p1[0] - p0[0])
+            for lx, ly in self._sample_line(p0, p1, self.waypoint_step):
+                if pts and self._same_xy((pts[-1][0], pts[-1][1]), (lx, ly)):
+                    continue
+                pts.append((lx, ly, yaw))
+        return pts
+
+    def _run_deadhead(self):
+        self._phase = 'deadhead'
+        end_x = self._x1 if self._forward else self._x0
+        a = (end_x, self._current_y)
+        next_y = self._lane_ys[self._lane_idx]
+        # start the new pass on the side nearest the current end (less outside travel)
+        new_forward = abs(end_x - self._x0) < abs(end_x - self._x1)
+        start_x = self._x0 if new_forward else self._x1
+        self._deadhead_next_y = next_y
+        self._deadhead_new_forward = new_forward
+
+        pts = self._deadhead_path(a, (start_x, next_y))
+        poses = [
+            self._pose(*self._to_map(lx, ly), self.area.yaw + lyaw)
+            for lx, ly, lyaw in pts
+        ]
+
+        self.get_logger().info(
+            f'Deadhead → pass {self._lane_pass[self._lane_idx] + 1} '
+            f'lane {self._lane_idx + 1}/{len(self._lane_ys)}: {len(poses)} poses  '
+            f'({a[0]:.2f},{a[1]:.2f})→({start_x:.2f},{next_y:.2f})  style={self.deadhead_style}')
+
+        goal = NavigateThroughPoses.Goal()
+        goal.poses = poses
+        goal.behavior_tree = ''
+
+        self._nav_epoch += 1
+        epoch = self._nav_epoch
+        future = self._through_ac.send_goal_async(goal)
+        future.add_done_callback(partial(self._on_deadhead_accepted, epoch=epoch))
+
+    def _on_deadhead_accepted(self, future, epoch):
+        handle = future.result()
+        if epoch != self._nav_epoch:
+            if handle.accepted:
+                handle.cancel_goal_async()
+            return
+        if not handle.accepted:
+            self.get_logger().warn('Deadhead goal rejected — starting next pass from current pose.')
+            self._after_deadhead()
+            return
+        self._turn_goal_handle = handle
+        handle.get_result_async().add_done_callback(
+            partial(self._on_deadhead_done, epoch=epoch))
+
+    def _on_deadhead_done(self, future, epoch):
+        if epoch != self._nav_epoch or self._paused:
+            return
+        self._turn_goal_handle = None
+        self._after_deadhead()
+
+    def _after_deadhead(self):
+        # Start the new pass at the exact planned lane y (keeps the interleave gap-free).
+        self._current_y = self._deadhead_next_y
+        self._forward = self._deadhead_new_forward
         self._run_lane()
 
     # ---- auto-mode obstacle stop ----

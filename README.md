@@ -35,14 +35,78 @@ beach_cleaning_bringup.launch.py
  - coverage_follow_waypoints (autostart)
 
 ## build
+
+บน **Jetson Nano** แรมน้อย ถ้า build ทุกแพ็กเกจพร้อมกัน (ค่าเริ่มต้น = parallel) มักจะ
+OOM / ค้าง ให้ build แบบ **sequential** (ทีละแพ็กเกจ) เสมอ:
+
 ```bash
 cd ~/beach_robot_ws
-rm -rf build install log
-colcon build --symlink-install
+MAKEFLAGS="-j1" colcon build --symlink-install --executor sequential
 source install/setup.bash
 ```
 
-## run bringup
+- `--symlink-install` — symlink ไฟล์ Python / launch / config เข้า `install/` แทนการคัดลอก
+  ⇒ แก้โค้ด Python/yaml แล้วใช้ได้เลยโดยไม่ต้อง build ใหม่ (build ใหม่เฉพาะตอนเพิ่มไฟล์ใหม่
+  หรือแก้ C++). หลังแก้ไฟล์ Python ให้ `source install/setup.bash` แล้วรันใหม่ได้เลย
+- `--executor sequential` — build ทีละแพ็กเกจ (ค่าเริ่มต้นคือ `parallel`) ลดการใช้แรม
+  พร้อมกัน กัน OOM บน Jetson
+- `MAKEFLAGS="-j1"` — จำกัดให้ compiler (C++) ทำทีละ job ลดพีคแรมตอน build แพ็กเกจ C++
+  เช่น `beach_wheel_mixer`, `zed_nav2_cloud_filter`. ถ้าเครื่องแรมเยอะใช้ `-j2` ได้
+
+Build เฉพาะแพ็กเกจที่แก้ (เร็วกว่ามาก):
+```bash
+colcon build --symlink-install --executor sequential \
+  --packages-select beach_robot_coverage_nav2
+source install/setup.bash
+```
+
+Clean build (ช้า ใช้เมื่อมีปัญหา):
+```bash
+rm -rf build install log
+MAKEFLAGS="-j1" colcon build --symlink-install --executor sequential
+```
+
+## launch
+
+> ก่อนรัน: ต่อ ESP32 (`/dev/ttyESP32`), ZED, joystick แล้ว `source install/setup.bash`
+
+**1) Preview เส้นทางอย่างเดียว (ไม่ขยับหุ่น)** — ดูใน RViz2 ที่ topic `/coverage/path_viz`
+(type: Path, frame: map):
+```bash
+ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
+  start_coverage:=false use_keepout:=false num_passes:=3 \
+  area_width:=4.0 area_height:=4.0 \
+  lane_spacing:=1.80 tool_width:=0.60 turn_radius:=0.90 boundary_margin:=0.30
+```
+
+**2) วิ่งอัตโนมัติ 3 รอบ (100% coverage)** — `start_coverage:=true`:
+```bash
+ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
+  start_coverage:=true use_keepout:=false num_passes:=3 \
+  area_width:=4.0 area_height:=4.0 \
+  lane_spacing:=1.80 tool_width:=0.60 turn_radius:=0.90 boundary_margin:=0.30
+```
+
+อาร์กิวเมนต์ที่ใช้บ่อย:
+
+| arg | default | ความหมาย |
+|-----|---------|----------|
+| `num_passes` | `3` | จำนวน pass สลับเส้น (3 รอบ = ครอบคลุม 100%); `1` = pass เดียว |
+| `lane_spacing` | `1.80` | ระยะเส้นภายใน pass (= `num_passes × tool_width`) |
+| `tool_width` | `0.60` | ความกว้างตัวตัก |
+| `turn_radius` | `0.90` | รัศมีโค้งหัวแถว (= lane_spacing/2) |
+| `use_keepout` | `false` | `false` = ไม่ใช้ keepout (deadhead วนนอกพื้นที่ได้); `true` = ใช้ mask |
+| `deadhead_style` | `outside` | การย้ายระหว่าง pass: `outside` วนนอกเขต / `direct` ตัดตรง |
+| `start_coverage` | `true` | `false` = preview เฉย ๆ |
+| `use_zed` | `true` | `use_zed:=false` ถ้าไม่ได้ต่อ ZED (ใช้ ultrasonic อย่างเดียว) |
+
+> ให้ตั้ง `area_yaw:=0` และ `area_origin_*:=0` (แกน X ของ map ขนานชายหาด) — เรขาคณิต
+> ของ lane/deadhead สมมติว่ากรอบพื้นที่ align กับ map frame
+
+รายละเอียดพารามิเตอร์ทั้งหมด ดู `CLAUDE.md` (หัวข้อ Coverage) และคู่มือจูนทราย
+`docs/sand_tuning_guide.md`
+
+## run hardware bringup (อย่างเดียว ไม่มี Nav2)
 ```bash
 ros2 launch beach_robot_bringup hardware_bringup.launch.py
 ```
@@ -140,12 +204,10 @@ ros2 run beach_robot_coverage_nav2 generate_keepout_mask --ros-args \
 ### ต้องต่อกับ localization
 
 
-### รัน Nav2 + Keepout + Coverage (boustrophedon)
-```bash
-ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py
-```
-สิ่งที่ launch นี้ทำ:
-- publish /keepout_mask (OccupancyGrid)
-- publish /costmap_filter_info (type=0 สำหรับ keepout)
-- เปิด nav2_bringup/navigation_launch.py
-- เปิด node coverage_follow_waypoints แล้วส่ง waypoints ให้ Nav2
+### รัน Nav2 + Coverage (3-pass boustrophedon)
+ดูคำสั่งเต็มที่หัวข้อ [launch](#launch) ด้านบน. สรุปสิ่งที่ launch ทำ:
+- เปิด `nav2_bringup/navigation_launch.py` (controller / planner / bt_navigator)
+- เปิด node `coverage_follow_waypoints` → สร้าง waypoints แบบ multipass แล้วส่งให้ Nav2
+- `use_keepout:=true` (ออปชัน): เพิ่ม publish `/keepout_mask` + `/costmap_filter_info`
+  และใช้ `nav2_params_keepout.yaml`. ค่าเริ่มต้น `use_keepout:=false` ไม่ใช้ keepout
+  (ใช้ `nav2_params_nokeepout.yaml` เพื่อให้ deadhead วนนอกพื้นที่ได้)

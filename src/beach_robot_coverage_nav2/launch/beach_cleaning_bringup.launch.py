@@ -1,7 +1,7 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
@@ -10,7 +10,6 @@ import os
 
 def generate_launch_description():
     use_sim_time = LaunchConfiguration('use_sim_time')
-    nav2_params = LaunchConfiguration('nav2_params')
     keepout_mask_yaml = LaunchConfiguration('keepout_mask_yaml')
     use_robot_stack = LaunchConfiguration('use_robot_stack')
     use_zed = LaunchConfiguration('use_zed')
@@ -42,18 +41,37 @@ def generate_launch_description():
     obstacle_stop_distance = LaunchConfiguration('obstacle_stop_distance')
     obstacle_cone_half_width = LaunchConfiguration('obstacle_cone_half_width')
     obstacle_clear_time_sec = LaunchConfiguration('obstacle_clear_time_sec')
+    num_passes = LaunchConfiguration('num_passes')
+    deadhead_style = LaunchConfiguration('deadhead_style')
+    deadhead_clearance = LaunchConfiguration('deadhead_clearance')
+    use_keepout = LaunchConfiguration('use_keepout')
 
     pkg = get_package_share_directory('beach_robot_coverage_nav2')
     localization_pkg = get_package_share_directory('beach_robot_localization')
     mixer_pkg = get_package_share_directory('beach_wheel_mixer')
-    default_nav2_params = os.path.join(pkg, 'config', 'nav2_params_keepout.yaml')
+    default_keepout_params = os.path.join(pkg, 'config', 'nav2_params_keepout.yaml')
+    default_nokeepout_params = os.path.join(pkg, 'config', 'nav2_params_nokeepout.yaml')
     default_keepout_mask_yaml = os.path.join(pkg, 'config', 'keepout_mask.yaml')
+
+    # Nav2 params: explicit nav2_params override wins; otherwise pick by use_keepout.
+    nav2_params = PythonExpression([
+        "'", LaunchConfiguration('nav2_params'), "' if '",
+        LaunchConfiguration('nav2_params'), "' != '' else ('",
+        default_keepout_params, "' if '", use_keepout,
+        "'.lower() == 'true' else '", default_nokeepout_params, "')",
+    ])
     localization_launch = os.path.join(localization_pkg, 'launch', 'localization_full_test.launch.py')
     default_mixer_params = os.path.join(mixer_pkg, 'config', 'mixer.yaml')
 
     declare = [
         DeclareLaunchArgument('use_sim_time', default_value='false'),
-        DeclareLaunchArgument('nav2_params', default_value=default_nav2_params),
+        DeclareLaunchArgument(
+            'nav2_params', default_value='',
+            description='Explicit Nav2 params file; empty = auto-pick by use_keepout.'),
+        DeclareLaunchArgument(
+            'use_keepout', default_value='false',
+            description='false (default): no keepout boundary, deadheads may loop outside the '
+                        'work area. true: use nav2_params_keepout.yaml + keepout mask servers.'),
         DeclareLaunchArgument('keepout_mask_yaml', default_value=default_keepout_mask_yaml),
         DeclareLaunchArgument(
             'use_robot_stack',
@@ -83,12 +101,20 @@ def generate_launch_description():
         DeclareLaunchArgument('area_yaw', default_value='0.0'),
         DeclareLaunchArgument('tool_width', default_value='0.60'),
         DeclareLaunchArgument('overlap', default_value='0.0'),
-        DeclareLaunchArgument('lane_spacing', default_value='0.60'),
+        # in-pass spacing; with num_passes=3 and tool_width=0.6 → 0.6 m fine lanes (100%).
+        DeclareLaunchArgument('lane_spacing', default_value='1.80'),
         DeclareLaunchArgument('auto_widen_lanes_for_turn', default_value='false'),
         DeclareLaunchArgument('boundary_margin', default_value='0.30'),
         DeclareLaunchArgument('waypoint_step', default_value='1.0'),
         DeclareLaunchArgument('turn_style', default_value='arc'),
-        DeclareLaunchArgument('turn_radius', default_value='0.30'),
+        DeclareLaunchArgument('turn_radius', default_value='0.90'),
+        # --- multipass coverage (interleaved passes for 100% coverage) ---
+        DeclareLaunchArgument(
+            'num_passes', default_value='3',
+            description='Interleaved passes (offset by lane_spacing/num_passes ≈ tool_width). '
+                        '1 = single pass.'),
+        DeclareLaunchArgument('deadhead_style', default_value='outside'),  # outside|direct
+        DeclareLaunchArgument('deadhead_clearance', default_value='0.9'),
         # --- auto-mode obstacle stop (ZED front cone) ---
         DeclareLaunchArgument('obstacle_stop_enabled', default_value='true'),
         DeclareLaunchArgument('obstacle_stop_distance', default_value='2.0'),
@@ -132,6 +158,7 @@ def generate_launch_description():
             'topic_name': '/keepout_mask',
             'yaml_filename': keepout_mask_yaml,
         }],
+        condition=IfCondition(use_keepout),
     )
 
     keepout_info_server = Node(
@@ -147,6 +174,7 @@ def generate_launch_description():
             'base': 0.0,
             'multiplier': 1.0,
         }],
+        condition=IfCondition(use_keepout),
     )
 
     # Lifecycle manager for the keepout servers — nav2_map_server nodes are
@@ -165,6 +193,7 @@ def generate_launch_description():
                 'keepout_costmap_filter_info_server',
             ],
         }],
+        condition=IfCondition(use_keepout),
     )
 
     nav2_pkg = get_package_share_directory('nav2_bringup')
@@ -207,6 +236,11 @@ def generate_launch_description():
             # --- turn ---
             'turn_style': turn_style,
             'turn_radius': turn_radius,
+
+            # --- multipass (interleaved passes for 100% coverage) ---
+            'num_passes': num_passes,
+            'deadhead_style': deadhead_style,
+            'deadhead_clearance': deadhead_clearance,
 
             # --- auto-mode obstacle stop (ZED front cone) ---
             'obstacle_stop.enabled': obstacle_stop_enabled,

@@ -107,14 +107,29 @@ Coverage planner + full Nav2 bringup.
 |-----------|---------|-------|
 | `pattern` | `boustrophedon` | also: `spiral` |
 | `area.width / height` | 30 / 10 m | long axis parallel to beach |
-| `lane_spacing` | 0.60 m | = tool_width when overlap=0 |
+| `lane_spacing` | 0.60 m | **in-pass** spacing; keep ≥ 2×turn_radius for arc turns |
 | `turn_radius` | 0.30 m | min arc radius; warn if < lane_spacing/2 |
 | `auto_widen_lanes_for_turn` | false | auto-expand lane_spacing to 2×turn_radius |
+| `num_passes` | 1 | interleaved passes for 100% coverage (launch default **3**) |
+| `deadhead_style` | `outside` | between-pass reposition: `outside` loop or `direct` |
+| `deadhead_clearance` | 0.9 m | how far outside the area the loop runs (≥ turn_radius) |
 | `boundary_margin` | 0.30 m | shrinks effective area |
 | `waypoint_step` | 1.0 m | dense waypoints along each lane |
 | `turn_style` | `arc` | also: `corner` |
 | `autostart` | true | set false to preview path only |
 | `start_delay_sec` | 15.0 s | wait for Nav2 to stabilise |
+
+**Multipass (3-pass) coverage:** when the tool (0.6 m) is narrower than the in-pass
+`lane_spacing` (1.8 m = 2×turn_radius, set wide so arc turns are feasible), a single pass
+leaves gaps. `num_passes:=3` lays fine lanes at `lane_spacing/num_passes` (= 0.6 m) and runs
+them as 3 interleaved passes offset by one tool width → **100% coverage**. Within a pass:
+arc turns (r = lane_spacing/2). Between passes: a deadhead that loops **outside** the work
+area (needs no keepout boundary — see `use_keepout` below). See
+`docs/sand_tuning_guide.md` and `~/beach_robot_logs/coverage/analysis/fig7_multipass_3pass.png`.
+
+**Keepout:** `use_keepout:=false` (default) runs without the keepout boundary
+(`nav2_params_nokeepout.yaml`, no mask servers) so the outside-loop deadheads can plan.
+`use_keepout:=true` restores `nav2_params_keepout.yaml` + the mask servers.
 
 **Nav2 controller (RegulatedPurePursuit):**
 
@@ -155,29 +170,32 @@ Config: `config/mixer.yaml`. Skid-steer kinematics, accounting for asymmetric tr
 2. Workspace built: `colcon build --symlink-install`
 3. Environment sourced: `source install/setup.bash`
 
-### Step 1 — Path preview only (no movement)
+### Step 1 — Path preview only (no movement), 3-pass
 ```bash
 ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
-  start_coverage:=false \
+  start_coverage:=false use_keepout:=false num_passes:=3 \
   coverage_pattern:=boustrophedon \
   area_origin_x:=0.0 area_origin_y:=0.0 \
-  area_width:=2.0 area_height:=1.8 area_yaw:=0.0 \
-  lane_spacing:=1.80 turn_radius:=0.90 \
-  boundary_margin:=0.0 angular_scale:=1.0
+  area_width:=4.0 area_height:=4.0 area_yaw:=0.0 \
+  lane_spacing:=1.80 tool_width:=0.60 turn_radius:=0.90 \
+  boundary_margin:=0.30 angular_scale:=1.0
 ```
 Open RViz2 and visualise `/coverage/path_viz` (type: Path, frame: map, republish 3 sec, QoS: volatile).
-Verify the lane pattern covers the expected rectangle.
+Verify 3 interleaved passes (7 lanes), arc turns within a pass, loops outside the rectangle
+between passes — i.e. matches `fig7_multipass_3pass.png`. The node log prints `passes=3 lanes=7`.
 
-### Step 2 — Autonomous boustrophedon run
+### Step 2 — Autonomous 3-pass run
 ```bash
 ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
-  start_coverage:=true \
+  start_coverage:=true use_keepout:=false num_passes:=3 \
   coverage_pattern:=boustrophedon \
   area_origin_x:=0.0 area_origin_y:=0.0 \
-  area_width:=2.0 area_height:=1.8 area_yaw:=0.0 \
-  lane_spacing:=1.80 turn_radius:=0.90 \
-  boundary_margin:=0.0 angular_scale:=1.0
+  area_width:=4.0 area_height:=4.0 area_yaw:=0.0 \
+  lane_spacing:=1.80 tool_width:=0.60 turn_radius:=0.90 \
+  boundary_margin:=0.30 angular_scale:=1.0
 ```
+Keep `area_yaw:=0` and `area_origin_*:=0` (map-X along the shore) — lane/deadhead geometry
+assumes the area frame is axis-aligned with map. For a single pass set `num_passes:=1`.
 
 ### Flags when ZED is not available
 ```bash
