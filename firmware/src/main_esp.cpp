@@ -28,7 +28,7 @@ static constexpr float V_CMD_DEADBAND = 0.005f;
 static constexpr float U_MIN = -1.0f;
 static constexpr float U_MAX = 1.0f;
 static float LOW_SPEED_TARGET_MAX_MPS[WHEEL_COUNT] = { 0.60f, 0.60f, 0.60f, 0.60f };
-static float ACTIVE_U_FLOOR[WHEEL_COUNT] = { 0.22f, 0.22f, 0.06f, 0.06f };
+static float ACTIVE_U_FLOOR[WHEEL_COUNT] = { 0.12f, 0.12f, 0.06f, 0.06f }; // front 0.22->0.12: sand low-speed stick-slip fix, 2026-06-09
 static constexpr float ACTIVE_FLOOR_DISABLE_ABOVE_TARGET_RATIO = 0.75f;
 static float SPIN_U_FLOOR[WHEEL_COUNT] = { 0.40f, 0.40f, 0.14f, 0.15f };
 static float SPIN_HOLD_U_FLOOR_POS[WHEEL_COUNT] = { 0.36f, 0.36f, 0.10f, 0.12f };
@@ -52,7 +52,7 @@ static constexpr float ENC_VEL_LPF_ALPHA = 0.35f;
 
 // wheels on air at battery 25.9 V, tune each wheel step, 2026-03-21
 static float PID_KP[WHEEL_COUNT] = { 0.15f, 0.18f, 0.04f, 0.03f };
-static float PID_KI[WHEEL_COUNT] = { 0.01f, 0.01f, 0.00f, 0.00f };
+static float PID_KI[WHEEL_COUNT] = { 0.08f, 0.08f, 0.05f, 0.05f }; // raised for sand hill/sustained-load climb (rears were 0), 2026-06-09
 static float PID_KD[WHEEL_COUNT] = { 0.00f, 0.00f, 0.00f, 0.00f };
 
 static uint32_t TELEMETRY_PERIOD_MS = 100;

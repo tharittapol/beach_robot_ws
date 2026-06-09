@@ -66,7 +66,9 @@ The rear encoder scale of **0.64** compensates for chain drive reduction.
 | `linear_scale` | **1.45** | Wheel odom field test (10 m straight) |
 | `angular_scale` | 1.0 | Baseline (spin tests pending) |
 | ESP32 PID Kp | [0.15, 0.18, 0.04, 0.03] | On-air test 2026-03-21 |
-| ESP32 PID Ki | [0.01, 0.01, 0.00, 0.00] | Same session |
+| ESP32 PID Ki | [0.08, 0.08, 0.05, 0.05] | **Sand field tune 2026-06-09** (was [0.01,0.01,0,0]; raised for hill/sustained-load climb) |
+| ESP32 `ACTIVE_U_FLOOR` | [0.12, 0.12, 0.06, 0.06] | **Sand field tune 2026-06-09** (front was 0.22; lowered to kill low-speed stick-slip stutter) |
+| `turn_gain_front` (mixer) | 1.3 | **Sand field tune 2026-06-09** (was 2.45; 2.45 collapsed inside front wheel → arc became pivot/stall) |
 | Wheel V_MAX | [1.25, 1.10, 9.70, 8.60] m/s | Hardware characterisation |
 
 ---
