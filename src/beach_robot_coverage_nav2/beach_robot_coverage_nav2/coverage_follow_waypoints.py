@@ -178,6 +178,10 @@ class CoverageFollowWaypoints(Node):
         self._turn_triggered: bool = False
         self._turn_target_yaw: float = 0.0
         self._turn_start_time = None
+        self._turn_yaw_direction: float = 1.0
+        self._turn_last_yaw: Optional[float] = None
+        self._turn_yaw_progress: float = 0.0
+        self._turn_required_yaw_delta: Optional[float] = None
         self._turn_goal_handle = None
         self._lane_goal_handle = None
         # Between-pass deadhead bookkeeping
@@ -240,6 +244,32 @@ class CoverageFollowWaypoints(Node):
             return value
         return str(value).strip().lower() in ('1', 'true', 'yes', 'on')
 
+    @staticmethod
+    def _norm_angle(angle: float) -> float:
+        return math.atan2(math.sin(angle), math.cos(angle))
+
+    @classmethod
+    def _angle_diff(cls, to_angle: float, from_angle: float) -> float:
+        return cls._norm_angle(to_angle - from_angle)
+
+    @classmethod
+    def _directed_angle_delta(cls, from_angle: float, to_angle: float, direction: float) -> float:
+        delta = cls._angle_diff(to_angle, from_angle)
+        if direction >= 0.0:
+            if delta < 0.0:
+                delta += 2.0 * math.pi
+        elif delta > 0.0:
+            delta -= 2.0 * math.pi
+        return delta
+
+    @staticmethod
+    def _yaw_from_odom(msg: Odometry) -> float:
+        q = msg.pose.pose.orientation
+        return math.atan2(
+            2.0 * (q.w * q.z + q.x * q.y),
+            1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+        )
+
     def _effective_lane_spacing(self) -> float:
         spacing = self.lane_spacing_param
         if spacing <= 0.0:
@@ -257,7 +287,7 @@ class CoverageFollowWaypoints(Node):
                     'Turns may become skid turns. Add auto_widen_lanes_for_turn:=true if needed.')
         return spacing
 
-    # Yaw error within this threshold (rad) → arc done, start next lane immediately
+    # Yaw error within this threshold (rad) -> arc done, start next lane immediately
     _TURN_YAW_THRESHOLD = 0.25   # ≈ 14° — triggers at ~95% of arc completion
 
     def _odom_cb(self, msg: Odometry):
@@ -268,31 +298,49 @@ class CoverageFollowWaypoints(Node):
     def _check_turn_yaw(self, msg: Odometry):
         if self._turn_start_time is None or self._paused:
             return
+        yaw = self._yaw_from_odom(msg)
+        if self._turn_last_yaw is None:
+            self._turn_last_yaw = yaw
+            self._turn_yaw_progress = 0.0
+            self._turn_required_yaw_delta = self._directed_angle_delta(
+                yaw, self._turn_target_yaw, self._turn_yaw_direction)
+        else:
+            self._turn_yaw_progress += self._angle_diff(yaw, self._turn_last_yaw)
+            self._turn_last_yaw = yaw
+
         elapsed = (self.get_clock().now() - self._turn_start_time).nanoseconds / 1e9
         if elapsed < 1.0:   # ignore first 1 s — let the arc begin
             return
 
-        q = msg.pose.pose.orientation
-        yaw = math.atan2(
-            2.0 * (q.w * q.z + q.x * q.y),
-            1.0 - 2.0 * (q.y * q.y + q.z * q.z),
-        )
-        err = abs(math.atan2(
-            math.sin(yaw - self._turn_target_yaw),
-            math.cos(yaw - self._turn_target_yaw),
-        ))
+        err = abs(self._angle_diff(yaw, self._turn_target_yaw))
+        overshot = self._turn_has_overshot_yaw_target()
 
-        if err < self._TURN_YAW_THRESHOLD:
+        if err < self._TURN_YAW_THRESHOLD or overshot:
             self._turn_triggered = True
             self._in_turn = False
+            reason = 'overshoot' if overshot and err >= self._TURN_YAW_THRESHOLD else 'yaw'
+            required = self._turn_required_yaw_delta
+            required_deg = math.degrees(required) if required is not None else float('nan')
             self.get_logger().info(
-                f'Arc done (yaw): yaw={math.degrees(yaw):.1f}°  '
+                f'Arc done ({reason}): yaw={math.degrees(yaw):.1f}°  '
                 f'target={math.degrees(self._turn_target_yaw):.1f}°  '
-                f'err={math.degrees(err):.1f}°  → starting next lane')
+                f'err={math.degrees(err):.1f}°  '
+                f'progress={math.degrees(self._turn_yaw_progress):.1f}°/'
+                f'{required_deg:.1f}°  → starting next lane')
             if self._turn_goal_handle is not None:
                 self._turn_goal_handle.cancel_goal_async()
                 self._turn_goal_handle = None
             self._after_turn()
+
+    def _turn_has_overshot_yaw_target(self) -> bool:
+        required = self._turn_required_yaw_delta
+        if required is None:
+            return False
+        if required > 0.0:
+            return self._turn_yaw_progress >= required
+        if required < 0.0:
+            return self._turn_yaw_progress <= required
+        return False
 
     # ---- geometry ----
 
@@ -507,7 +555,8 @@ class CoverageFollowWaypoints(Node):
     #   _run_turn       →  starts _in_turn=True, monitors yaw via _check_turn_yaw
     #
     # Arc completes via whichever fires first:
-    #   (a) _check_turn_yaw: yaw ≈ next-lane heading → cancel goal, call _after_turn
+    #   (a) _check_turn_yaw: yaw reaches/overshoots next-lane heading → cancel goal,
+    #       call _after_turn
     #   (b) _on_turn_done: NavigateThroughPoses reaches arc endpoint normally
     #
     # _after_turn: reads actual robot y from /odometry/local → _current_y → _run_lane
@@ -623,7 +672,8 @@ class CoverageFollowWaypoints(Node):
         """Navigate arc waypoints via NavigateThroughPoses.
 
         Arc completes via ONE of two paths (whichever fires first):
-          (a) _check_turn_yaw: yaw reaches next-lane heading → cancel goal, start lane
+          (a) _check_turn_yaw: yaw reaches/overshoots next-lane heading → cancel goal,
+              start lane
           (b) _on_turn_done:  NavigateThroughPoses reaches arc endpoint normally
         """
         self._phase = 'turn'
@@ -632,7 +682,16 @@ class CoverageFollowWaypoints(Node):
         x_end = self._x1 if self._forward else self._x0
 
         self._turn_y_target = y_target
-        self._turn_target_yaw = math.pi if self._forward else 0.0
+        start_yaw_local = 0.0 if self._forward else math.pi
+        target_yaw_local = math.pi if self._forward else 0.0
+        planned_start_yaw = self._norm_angle(self.area.yaw + start_yaw_local)
+        self._turn_target_yaw = self._norm_angle(self.area.yaw + target_yaw_local)
+        self._turn_yaw_direction = 1.0 if self._forward else -1.0
+        start_yaw = self._yaw_from_odom(self._odom) if self._odom is not None else planned_start_yaw
+        self._turn_last_yaw = start_yaw
+        self._turn_yaw_progress = 0.0
+        self._turn_required_yaw_delta = self._directed_angle_delta(
+            start_yaw, self._turn_target_yaw, self._turn_yaw_direction)
         self._in_turn = True
         self._turn_triggered = False
         self._turn_start_time = self.get_clock().now()
@@ -652,7 +711,7 @@ class CoverageFollowWaypoints(Node):
             f'Turn arc → lane {self._lane_idx + 1}: '
             f'{len(poses)} arc poses  y={y_cur:.3f}→{y_target:.3f}  '
             f'r={(abs(y_target - y_cur) / 2.0):.3f}m  '
-            f'target_yaw={"π" if self._forward else "0"}')
+            f'target_yaw={math.degrees(self._turn_target_yaw):.1f}°')
 
         self._nav_epoch += 1
         epoch = self._nav_epoch
