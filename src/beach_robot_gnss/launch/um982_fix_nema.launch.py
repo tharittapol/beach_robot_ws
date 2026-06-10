@@ -23,7 +23,7 @@ def generate_launch_description():
 
                 'ntrip_host': 'rtk2go.com',
                 'ntrip_port': 2101,
-                'mountpoint': 'SRPDI1968',
+                'mountpoint': 'TH-kukot',
 
                 # rtk2go: email conversion + password none
                 'username': 'wachiramate-at-gmail-d-com',

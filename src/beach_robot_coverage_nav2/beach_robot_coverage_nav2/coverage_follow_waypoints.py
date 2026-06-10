@@ -369,6 +369,63 @@ class CoverageFollowWaypoints(Node):
             pts.append((lx, ly, yaw))
         return pts
 
+    def _round_corners(self, corners, r, step):
+        """Replace each vertex of a polyline with a tangent arc (radius ≤ r) so the
+        deadhead is a smooth curve, never a hard 90° corner. Radius is clamped to what the
+        adjacent legs allow (end legs use their full length, shared legs half), so a tight
+        inter-pass gap degrades to a smaller arc instead of a sharp corner. → [(x,y,yaw),...]."""
+        pts = []
+        n = len(corners)
+        if n == 0:
+            return pts
+        if n <= 2:
+            a, b = corners[0], corners[-1]
+            yaw = math.atan2(b[1] - a[1], b[0] - a[0])
+            return [(x, y, yaw) for (x, y) in self._sample_line(a, b, step)]
+
+        start = corners[0]            # start of the current straight run (moves to each arc exit)
+        for i in range(1, n - 1):
+            v, nxt = corners[i], corners[i + 1]
+            ix, iy = v[0] - start[0], v[1] - start[1]
+            lin = math.hypot(ix, iy)
+            ox, oy = nxt[0] - v[0], nxt[1] - v[1]
+            lout = math.hypot(ox, oy)
+            if lin < 1e-6 or lout < 1e-6:
+                continue
+            ix, iy = ix / lin, iy / lin
+            ox, oy = ox / lout, oy / lout
+            phi = math.atan2(ix * oy - iy * ox, ix * ox + iy * oy)   # signed heading change
+            yaw_in = math.atan2(iy, ix)
+            if abs(phi) < 1e-3:
+                continue                                            # collinear → no corner
+            tan_h = math.tan(abs(phi) / 2.0)
+            out_avail = lout if (i + 1 == n - 1) else 0.5 * lout
+            rr = min(r, lin / tan_h, out_avail / tan_h) if tan_h > 1e-6 else 0.0
+            t = rr * tan_h
+            if rr < 0.05 or t < 1e-3:                               # too tight to fillet
+                for (x, y) in self._sample_line(start, v, step):
+                    pts.append((x, y, yaw_in))
+                start = v
+                continue
+            t_in = (v[0] - ix * t, v[1] - iy * t)
+            t_out = (v[0] + ox * t, v[1] + oy * t)
+            for (x, y) in self._sample_line(start, t_in, step):
+                pts.append((x, y, yaw_in))
+            sgn = 1.0 if phi > 0 else -1.0                          # +1 = left turn
+            cx, cy = t_in[0] - iy * sgn * rr, t_in[1] + ix * sgn * rr
+            a0 = math.atan2(t_in[1] - cy, t_in[0] - cx)
+            asteps = max(3, int(math.ceil(rr * abs(phi) / max(step, 0.1))))
+            for k in range(1, asteps + 1):
+                ang = a0 + phi * (k / asteps)
+                pts.append((cx + rr * math.cos(ang), cy + rr * math.sin(ang),
+                            ang + sgn * math.pi / 2.0))
+            start = t_out
+        last = corners[-1]
+        yaw_f = math.atan2(last[1] - start[1], last[0] - start[0])
+        for (x, y) in self._sample_line(start, last, step):
+            pts.append((x, y, yaw_f))
+        return pts
+
     # ---- preview path (S-shape with arc curves) ----
 
     def generate_coverage_poses(self) -> List[PoseStamped]:
@@ -671,14 +728,9 @@ class CoverageFollowWaypoints(Node):
             corners += [(xa_out, y_rail), (xb_out, y_rail), (xb_out, yb)]
         corners.append(b)                                 # straight back in
 
-        pts = []
-        for p0, p1 in zip(corners[:-1], corners[1:]):
-            yaw = math.atan2(p1[1] - p0[1], p1[0] - p0[0])
-            for lx, ly in self._sample_line(p0, p1, self.waypoint_step):
-                if pts and self._same_xy((pts[-1][0], pts[-1][1]), (lx, ly)):
-                    continue
-                pts.append((lx, ly, yaw))
-        return pts
+        # Round every corner into a tangent arc (radius ≤ turn_radius) so the deadhead is a
+        # smooth curve, not a 90° dog-leg. Same-side gaps < 2·turn_radius get a tighter arc.
+        return self._round_corners(corners, self.turn_radius, self.waypoint_step)
 
     def _run_deadhead(self):
         self._phase = 'deadhead'
