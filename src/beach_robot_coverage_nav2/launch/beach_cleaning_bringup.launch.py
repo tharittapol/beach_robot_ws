@@ -96,25 +96,27 @@ def generate_launch_description():
         DeclareLaunchArgument('coverage_pattern', default_value='boustrophedon'),
         DeclareLaunchArgument('area_origin_x', default_value='0.0'),
         DeclareLaunchArgument('area_origin_y', default_value='0.0'),
-        DeclareLaunchArgument('area_width', default_value='30.0'),
-        DeclareLaunchArgument('area_height', default_value='10.0'),
+        DeclareLaunchArgument('area_width', default_value='20.0'),   # sand: long lane axis
+        DeclareLaunchArgument('area_height', default_value='5.0'),    # sand: lanes stacked across
         DeclareLaunchArgument('area_yaw', default_value='0.0'),
         DeclareLaunchArgument('tool_width', default_value='0.60'),
         DeclareLaunchArgument('overlap', default_value='0.0'),
-        # in-pass spacing; with num_passes=3 and tool_width=0.6 → 0.6 m fine lanes (100%).
-        DeclareLaunchArgument('lane_spacing', default_value='1.80'),
+        # in-pass spacing = 2×turn_radius (keeps arc turns feasible). Sand: 3.6 = 2×1.8.
+        # LOCK together with turn_radius; vary num_passes for coverage density (P=6→100%).
+        DeclareLaunchArgument('lane_spacing', default_value='3.60'),
         DeclareLaunchArgument('auto_widen_lanes_for_turn', default_value='false'),
         DeclareLaunchArgument('boundary_margin', default_value='0.30'),
         DeclareLaunchArgument('waypoint_step', default_value='1.0'),
         DeclareLaunchArgument('turn_style', default_value='arc'),
-        DeclareLaunchArgument('turn_radius', default_value='0.90'),
+        DeclareLaunchArgument('turn_radius', default_value='1.80'),  # sand clean turn radius; keep = lane_spacing/2
         # --- multipass coverage (interleaved passes for 100% coverage) ---
         DeclareLaunchArgument(
-            'num_passes', default_value='3',
-            description='Interleaved passes (offset by lane_spacing/num_passes ≈ tool_width). '
-                        '1 = single pass.'),
+            'num_passes', default_value='6',
+            description='Coverage-density knob (offset by lane_spacing/num_passes). Sand: 6 → '
+                        '0.6 m fine lanes = 100%; coverage ≈ num_passes/6. Keep lane_spacing/'
+                        'turn_radius fixed when changing this.'),
         DeclareLaunchArgument('deadhead_style', default_value='outside'),  # outside|direct
-        DeclareLaunchArgument('deadhead_clearance', default_value='0.9'),
+        DeclareLaunchArgument('deadhead_clearance', default_value='1.8'),  # ≥ turn_radius for outside loops
         # --- auto-mode obstacle stop (ZED front cone) ---
         DeclareLaunchArgument('obstacle_stop_enabled', default_value='true'),
         DeclareLaunchArgument('obstacle_stop_distance', default_value='2.0'),
