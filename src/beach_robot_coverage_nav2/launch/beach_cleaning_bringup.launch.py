@@ -25,6 +25,7 @@ def generate_launch_description():
     publish_map_to_odom_tf = LaunchConfiguration('publish_map_to_odom_tf')
     start_coverage = LaunchConfiguration('start_coverage')
     start_delay_sec = LaunchConfiguration('start_delay_sec')
+    enable_turn_yaw_cut = LaunchConfiguration('enable_turn_yaw_cut')
     coverage_pattern = LaunchConfiguration('coverage_pattern')
     area_origin_x = LaunchConfiguration('area_origin_x')
     area_origin_y = LaunchConfiguration('area_origin_y')
@@ -103,6 +104,10 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument('start_coverage', default_value='true'),
         DeclareLaunchArgument('start_delay_sec', default_value='15.0'),
+        DeclareLaunchArgument('enable_turn_yaw_cut', default_value='true',
+                              description='false → follow the full arc/teardrop path to its end '
+                                          '(no early yaw cut). Cleaner when turn_radius matches the '
+                                          'robot; avoids the cancel+resend race that skips a lane.'),
         DeclareLaunchArgument('coverage_pattern', default_value='boustrophedon'),
         DeclareLaunchArgument('area_origin_x', default_value='0.0'),
         DeclareLaunchArgument('area_origin_y', default_value='0.0'),
@@ -249,6 +254,7 @@ def generate_launch_description():
             # --- turn ---
             'turn_style': turn_style,
             'turn_radius': turn_radius,
+            'enable_turn_yaw_cut': enable_turn_yaw_cut,
 
             # --- multipass (interleaved passes for 100% coverage) ---
             'num_passes': num_passes,

@@ -56,6 +56,12 @@ class CoverageFollowWaypoints(Node):
         self.declare_parameter('preview_path_topic', '/coverage/path')
         self.declare_parameter('autostart', True)
         self.declare_parameter('start_delay_sec', 5.0)
+        # Cut an arc turn early when the heading reaches the next lane (handles a tight,
+        # under-following arc). Set False to instead FOLLOW THE FULL arc/teardrop path to its
+        # endpoint — cleaner once turn_radius matches the robot, and it avoids the cancel+resend
+        # race that can skip the lane right after a cut.
+        self.declare_parameter('enable_turn_yaw_cut', True)
+        self._yaw_cut_enabled = bool(self.get_parameter('enable_turn_yaw_cut').value)
 
         # --- multipass coverage (interleaved passes for 100% coverage) ---
         # num_passes>1: lay fine lanes at lane_spacing/num_passes (= tool_width) and run
@@ -294,7 +300,8 @@ class CoverageFollowWaypoints(Node):
 
     def _odom_cb(self, msg: Odometry):
         self._odom = msg
-        if self._in_turn and not self._turn_triggered and not self._paused:
+        if (self._yaw_cut_enabled and self._in_turn
+                and not self._turn_triggered and not self._paused):
             self._check_turn_yaw(msg)
 
     def _check_turn_yaw(self, msg: Odometry):
