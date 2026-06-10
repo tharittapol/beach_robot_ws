@@ -122,13 +122,18 @@ Coverage planner + full Nav2 bringup.
 | `autostart` | true | set false to preview path only |
 | `start_delay_sec` | 15.0 s | wait for Nav2 to stabilise |
 
-**Multipass (3-pass) coverage:** when the tool (0.6 m) is narrower than the in-pass
-`lane_spacing` (1.8 m = 2×turn_radius, set wide so arc turns are feasible), a single pass
-leaves gaps. `num_passes:=3` lays fine lanes at `lane_spacing/num_passes` (= 0.6 m) and runs
-them as 3 interleaved passes offset by one tool width → **100% coverage**. Within a pass:
-arc turns (r = lane_spacing/2). Between passes: a deadhead that loops **outside** the work
-area (needs no keepout boundary — see `use_keepout` below). See
-`docs/sand_tuning_guide.md` and `~/beach_robot_logs/coverage/analysis/fig7_multipass_3pass.png`.
+**Multipass coverage (sand 2026-06-10):** on sand the clean turn radius is **1.8 m** (rear
+round wheels slip in turns → robot under-rotates; see Tuned Parameters). So **lock
+`turn_radius:=1.8` and `lane_spacing:=3.6` (= 2×turn_radius)** — these keep the in-pass arc
+turns feasible and should not change. `num_passes` is then the **coverage-density knob**: fine
+lanes are laid at `lane_spacing/num_passes`, interleaved by one tool width.
+- **`num_passes:=6` → fine spacing 0.6 m = tool width → 100% coverage** (the full-coverage value).
+- Fewer passes trade coverage for fewer deadheads/faster runs: **coverage ≈ (num_passes / 6) × 100%**
+  (P=5→83%, P=4→67%, P=3→50%). Gaps are acceptable for quick tests; **`turn_radius` stays 1.8**.
+
+Within a pass: arc turns (r = lane_spacing/2 = 1.8). Between passes: a deadhead that loops
+**outside** the work area (needs no keepout boundary — see `use_keepout` below). See
+`docs/sand_tuning_guide.md`.
 
 **Keepout:** `use_keepout:=false` (default) runs without the keepout boundary
 (`nav2_params_nokeepout.yaml`, no mask servers) so the outside-loop deadheads can plan.
@@ -138,8 +143,9 @@ area (needs no keepout boundary — see `use_keepout` below). See
 
 | Parameter | Value |
 |-----------|-------|
-| `desired_linear_vel` | 0.5 m/s |
-| `lookahead_dist` | 1.5 m |
+| `desired_linear_vel` | 0.25 m/s (sand; nokeepout) — keeps turns ≥0.18 so inside front track drives |
+| `min_approach_linear_velocity` | 0.20 m/s (sand) — don't crawl into waypoints/turns |
+| `lookahead_dist` | 0.40 m (nokeepout) |
 | `rotate_to_heading_angular_vel` | 0.6 rad/s |
 | `controller_frequency` | 20 Hz |
 | `stop_on_failure` | false (waypoint follower) |
@@ -173,32 +179,39 @@ Config: `config/mixer.yaml`. Skid-steer kinematics, accounting for asymmetric tr
 2. Workspace built: `colcon build --symlink-install`
 3. Environment sourced: `source install/setup.bash`
 
-### Step 1 — Path preview only (no movement), 3-pass
+### Step 1 — Path preview only (no movement), sand 5×20, full coverage (6-pass)
 ```bash
 ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
-  start_coverage:=false use_keepout:=false num_passes:=3 \
+  start_coverage:=false use_keepout:=false num_passes:=6 \
   coverage_pattern:=boustrophedon \
   area_origin_x:=0.0 area_origin_y:=0.0 \
-  area_width:=4.0 area_height:=4.0 area_yaw:=0.0 \
-  lane_spacing:=1.80 tool_width:=0.60 turn_radius:=0.90 \
+  area_width:=20.0 area_height:=5.0 area_yaw:=0.0 \
+  lane_spacing:=3.60 tool_width:=0.60 turn_radius:=1.80 deadhead_clearance:=1.80 \
   boundary_margin:=0.30 angular_scale:=1.0
 ```
-Open RViz2 and visualise `/coverage/path_viz` (type: Path, frame: map, republish 3 sec, QoS: volatile).
-Verify 3 interleaved passes (7 lanes), arc turns within a pass, loops outside the rectangle
-between passes — i.e. matches `fig7_multipass_3pass.png`. The node log prints `passes=3 lanes=7`.
+Long axis (20 m) carries the lanes → few long straight lanes, few turns. Open RViz2 and
+visualise `/coverage/path_viz` (type: Path, frame: map, republish 3 sec, QoS: volatile).
+Verify long 20 m lanes, arc turns (r=1.8) within a pass, loops outside the rectangle between
+passes. The node log prints `passes=6 lanes=N`. Needs **~24×9 m clear sand** (lanes 20 m +
+deadhead loops 1.8 m past each end).
 
-### Step 2 — Autonomous 3-pass run
+**Fewer passes / faster:** lower `num_passes` only and **keep `lane_spacing:=3.60
+turn_radius:=1.80`** — coverage ≈ (num_passes/6)×100% (gaps below 6, but arc turns stay valid).
+
+### Step 2 — Autonomous run (sand 5×20, 6-pass)
 ```bash
 ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
-  start_coverage:=true use_keepout:=false num_passes:=3 \
+  start_coverage:=true use_keepout:=false num_passes:=6 \
   coverage_pattern:=boustrophedon \
   area_origin_x:=0.0 area_origin_y:=0.0 \
-  area_width:=4.0 area_height:=4.0 area_yaw:=0.0 \
-  lane_spacing:=1.80 tool_width:=0.60 turn_radius:=0.90 \
-  boundary_margin:=0.30 angular_scale:=1.0
+  area_width:=20.0 area_height:=5.0 area_yaw:=0.0 \
+  lane_spacing:=3.60 tool_width:=0.60 turn_radius:=1.80 deadhead_clearance:=1.80 \
+  boundary_margin:=0.30 angular_scale:=1.0 use_gnss:=true
 ```
 Keep `area_yaw:=0` and `area_origin_*:=0` (map-X along the shore) — lane/deadhead geometry
-assumes the area frame is axis-aligned with map. For a single pass set `num_passes:=1`.
+assumes the area frame is axis-aligned with map. `use_gnss:=true` so `/gps/fix` +
+`/odometry/gps` are published for the bag (drop it if RTK/NTRIP is not set up). Lower
+`num_passes` for partial coverage (keep lane_spacing/turn_radius).
 
 ### Flags when ZED is not available
 ```bash
@@ -210,9 +223,10 @@ This removes ZED from the costmap — ultrasonics only for obstacle detection.
 ```bash
 STAMP=$(date +%Y%m%d_%H%M%S)
 ros2 bag record --include-hidden-topics \
-  -o ~/beach_robot_logs/coverage/coverage_boustrophedon_${STAMP} \
+  -o ~/beach_robot_logs/coverage/sand_run_${STAMP} \
   /cmd_vel /wheel_cmd /enc_vel \
   /wheel/odom /odometry/fusion_bno /odometry/local \
+  /odometry/gps /gps/fix \
   /imu/data \
   /coverage/path \
   /plan /local_plan \
@@ -221,6 +235,9 @@ ros2 bag record --include-hidden-topics \
   /local_costmap/costmap /global_costmap/costmap \
   /tf /tf_static
 ```
+`/odometry/gps` + `/gps/fix` need the run launched with `use_gnss:=true`. Add
+`/ultrasonic/{left,middle,right}` to capture obstacle-stop events; `/zed/filtered_cloud` is
+large — record it only when debugging the ZED obstacle layer.
 
 ---
 
@@ -268,15 +285,20 @@ colcon build --symlink-install
 ### `coverage_bag_report` — usage
 
 ```bash
-# After sourcing workspace:
+# After sourcing workspace (sand runs: --turn-thresh 0.08, see note below):
 ros2 run beach_robot_bringup coverage_bag_report \
-  ~/beach_robot_logs/coverage/coverage_boustrophedon_20260513_120000 \
-  [--out ~/thesis_data/run1]
+  ~/beach_robot_logs/coverage/sand_run_<STAMP> \
+  --out ~/thesis_data/sand_cov1 --turn-thresh 0.08
 
 # Or run directly (no colcon build needed):
 python3 src/beach_robot_bringup/beach_robot_bringup/tools/coverage_bag_report.py \
-  <bag_path> [--out <output_dir>] [--min-lane-sec 2.0]
+  <bag_path> [--out <output_dir>] [--min-lane-sec 2.0] [--turn-thresh 0.08]
 ```
+> **`--turn-thresh` (sand):** phase split uses `|angular_z|` (default 0.15 rad/s). Sand arcs at
+> `turn_radius 1.8`, `desired_linear_vel 0.25` turn at `w = v/R ≈ 0.14 rad/s` — below 0.15, so
+> turns get misclassified as straight lanes. Use **`--turn-thresh 0.08`** for these runs.
+> Note: this tool reports **coverage metrics only** (lane/turn tracking from `/odometry/local`);
+> it does **not** compare imu/gps/encoder separately — use `localization_pose_report.py` for that.
 
 **Output CSV files:**
 
