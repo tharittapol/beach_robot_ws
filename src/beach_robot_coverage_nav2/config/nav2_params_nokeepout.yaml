@@ -13,7 +13,7 @@ bt_navigator:
     use_sim_time: false
     global_frame: map
     robot_base_frame: base_link
-    odom_topic: /odometry/local
+    odom_topic: /odometry/fusion_bno   # the EKF topic the stack actually publishes (was /odometry/local, never produced)
     default_bt_xml_filename: "navigate_w_replanning_and_recovery.xml"
     navigators: ["navigate_to_pose", "navigate_through_poses"]
     navigate_to_pose:

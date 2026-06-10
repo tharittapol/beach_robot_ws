@@ -101,7 +101,7 @@ class TurnSeg:
 # ─── bag reading ──────────────────────────────────────────────────────────────
 
 _WANTED_TYPES = {
-    '/odometry/local':   'nav_msgs/msg/Odometry',
+    '/odometry/fusion_bno':   'nav_msgs/msg/Odometry',
     '/wheel/odom':       'nav_msgs/msg/Odometry',
     '/cmd_vel':          'geometry_msgs/msg/Twist',
     '/wheel_cmd':        'std_msgs/msg/Float32MultiArray',
@@ -158,7 +158,7 @@ def read_bag(bag_path: str):
 
 def extract_poses(data) -> List[PosePoint]:
     pts = []
-    for t, msg in data.get('/odometry/local', []):
+    for t, msg in data.get('/odometry/fusion_bno', []):
         p = msg.pose.pose
         pts.append(PosePoint(
             t=t,
@@ -571,7 +571,7 @@ def main():
     print(f'Planned lane ys  : {[round(y, 3) for y in planned_ys]}')
 
     if not poses:
-        print('ERROR: /odometry/local not in bag — cannot analyse.', file=sys.stderr)
+        print('ERROR: /odometry/fusion_bno not in bag — cannot analyse.', file=sys.stderr)
         sys.exit(1)
     if not cmd_vels:
         print('WARNING: /cmd_vel not in bag — phase detection will be skipped.',

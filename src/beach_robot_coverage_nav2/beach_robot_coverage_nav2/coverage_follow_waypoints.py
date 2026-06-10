@@ -156,9 +156,11 @@ class CoverageFollowWaypoints(Node):
         self._nav_ac = ActionClient(self, NavigateToPose, 'navigate_to_pose')
         self._through_ac = ActionClient(self, NavigateThroughPoses, 'navigate_through_poses')
 
-        # Robot pose from /odometry/local (map≡odom for local coverage)
+        # Robot pose from /odometry/fusion_bno = the EKF (wheel+BNO) output the stack actually
+        # publishes (/odometry/local is NOT produced here). self._odom feeds the yaw-cut turn
+        # completion, actual-y after a turn, and obstacle resume — all dead if this is empty.
         self._odom: Optional[Odometry] = None
-        self.create_subscription(Odometry, '/odometry/local', self._odom_cb, 10)
+        self.create_subscription(Odometry, '/odometry/fusion_bno', self._odom_cb, 10)
 
         # Preview publishers
         preview_qos = QoSProfile(depth=1)
