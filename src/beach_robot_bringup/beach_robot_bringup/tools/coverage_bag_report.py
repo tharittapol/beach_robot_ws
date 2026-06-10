@@ -540,7 +540,14 @@ def main():
                         help='Output directory (default: <bag_path>_report)')
     parser.add_argument('--min-lane-sec', type=float, default=_MIN_STRAIGHT_S,
                         help=f'Min duration to classify as a lane (default: {_MIN_STRAIGHT_S}s)')
+    parser.add_argument('--turn-thresh', type=float, default=0.15,
+                        help='|angular_z| rad/s above which a phase counts as a turn '
+                             '(default 0.15; use ~0.08 for wide/gentle sand arcs, e.g. R>=1.5 m '
+                             'where w = v/R is only ~0.14 rad/s)')
     args = parser.parse_args()
+
+    global _ANG_TURN_THRESH
+    _ANG_TURN_THRESH = args.turn_thresh
 
     bag_path = args.bag_path.rstrip('/')
     out_dir = args.out or (bag_path + '_report')
