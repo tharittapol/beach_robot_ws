@@ -13,8 +13,8 @@ class Teleop4WDSkid(Node):
         super().__init__('teleop_4wd')
 
         # ---------------- Parameters ----------------
-        self.declare_parameter('max_linear', 0.17)
-        self.declare_parameter('max_angular', 0.24)
+        self.declare_parameter('max_linear', 0.35)   # sand: match mixer max_v (drives smooth 0.15-0.35)
+        self.declare_parameter('max_angular', 0.35)  # sand: match mixer max_w
 
         # Joystick axes (F710 XInput usually: left_x=0, left_y=1)
         self.declare_parameter('axis_linear', 1)     # left stick Y
@@ -326,10 +326,16 @@ class Teleop4WDSkid(Node):
             self.last_joy_time is None or
             (now - self.last_joy_time) > self.joy_timeout_sec
         )
+        if not self.manual_mode:
+            # Auto mode: Nav2 owns /cmd_vel. Stay silent — publishing zero here just fights
+            # Nav2. E-STOP is enforced at the ESP32 bridge (it force-zeros motors on /e_stop).
+            self._set_target_zero()
+            self.current_v = 0.0
+            self.current_w = 0.0
+            return
         force_zero = (
             joy_stale or
             self.estop_active or
-            not self.manual_mode or
             not self.deadman_active
         )
         if force_zero:

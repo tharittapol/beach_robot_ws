@@ -45,6 +45,7 @@ class ESP32Bridge(Node):
         self.wheel_cmd_seq = 0
         self.wheel_cmd_period = 1.0 / max(self.wheel_cmd_send_rate_hz, 1.0)
         self.last_wheel_cmd_write_time = 0.0
+        self.estop_active = False   # /e_stop (teleop Y) → force-zero motor output regardless of source
 
         # Ultrasonic params
         self.declare_parameter('ultra_min_m', 0.02)
@@ -119,6 +120,15 @@ class ESP32Bridge(Node):
             String,
             'esp32/json_cmd',
             self.json_cmd_callback,
+            10
+        )
+        # Hardware-level E-STOP: while /e_stop is true, the timer forces zero wheel_cmd to the
+        # ESP32 regardless of what Nav2 / teleop / the mixer publish. This is what actually stops
+        # the robot in AUTO (coverage) mode — nothing else consumes /e_stop.
+        self.sub_estop = self.create_subscription(
+            Bool,
+            'e_stop',
+            self.estop_callback,
             10
         )
 
@@ -198,10 +208,23 @@ class ESP32Bridge(Node):
         self.latest_wheel_cmd = [float(x) for x in msg.data[:4]]
         self.latest_wheel_cmd_time = time.monotonic()
 
+    def estop_callback(self, msg: Bool):
+        if bool(msg.data) != self.estop_active:
+            self.get_logger().warn(f'E-STOP {"ENGAGED" if msg.data else "released"} → '
+                                   f'{"forcing zero motor output" if msg.data else "resuming"}')
+        self.estop_active = bool(msg.data)
+
     def send_latest_wheel_cmd(self):
+        now = time.monotonic()
+        if self.estop_active:
+            # E-STOP: keep streaming zeros to the ESP32 (overrides Nav2/teleop/mixer entirely).
+            self.wheel_cmd_seq = (self.wheel_cmd_seq + 1) & 0x7fffffff
+            if self.write_json_line({'wheel_cmd': [0.0, 0.0, 0.0, 0.0],
+                                     'cmd_seq': self.wheel_cmd_seq}, 'wheel_cmd'):
+                self.last_wheel_cmd_write_time = now
+            return
         if self.latest_wheel_cmd is None:
             return
-        now = time.monotonic()
         wheel_cmd = self.latest_wheel_cmd
         if (
             self.wheel_cmd_stale_timeout_sec > 0.0 and

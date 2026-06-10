@@ -19,13 +19,13 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'max_linear',
-            default_value='0.17',
-            description='Maximum manual linear speed in m/s.',
+            default_value='0.35',
+            description='Maximum manual linear speed in m/s (sand: match mixer max_v).',
         ),
         DeclareLaunchArgument(
             'max_angular',
-            default_value='0.30',
-            description='Maximum manual angular speed in rad/s.',
+            default_value='0.35',
+            description='Maximum manual angular speed in rad/s (sand: match mixer max_w).',
         ),
         DeclareLaunchArgument(
             'axis_linear',
