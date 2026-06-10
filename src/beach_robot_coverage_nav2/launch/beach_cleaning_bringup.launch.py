@@ -105,7 +105,7 @@ def generate_launch_description():
         # LOCK together with turn_radius; vary num_passes for coverage density (P=6→100%).
         DeclareLaunchArgument('lane_spacing', default_value='3.60'),
         DeclareLaunchArgument('auto_widen_lanes_for_turn', default_value='false'),
-        DeclareLaunchArgument('boundary_margin', default_value='0.30'),
+        DeclareLaunchArgument('boundary_margin', default_value='0.0'),  # 0 → first lane starts at area origin = robot spawn (drives straight immediately)
         DeclareLaunchArgument('waypoint_step', default_value='1.0'),
         DeclareLaunchArgument('turn_style', default_value='arc'),
         DeclareLaunchArgument('turn_radius', default_value='1.80'),  # sand clean turn radius; keep = lane_spacing/2

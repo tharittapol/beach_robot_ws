@@ -46,7 +46,7 @@ class CoverageFollowWaypoints(Node):
         self.declare_parameter('overlap', 0.0)
         self.declare_parameter('lane_spacing', 0.0)  # <=0: tool_width*(1-overlap)
         self.declare_parameter('auto_widen_lanes_for_turn', False)
-        self.declare_parameter('boundary_margin', 0.30)
+        self.declare_parameter('boundary_margin', 0.0)   # 0 → first lane at area origin = robot spawn pose
         self.declare_parameter('waypoint_step', 1.0)
         self.declare_parameter('turn_style', 'arc')  # arc|corner
         self.declare_parameter('turn_radius', 0.30)
