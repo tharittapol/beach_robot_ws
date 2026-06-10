@@ -113,8 +113,8 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'linear_scale',
-            default_value='1.45',
-            description='Wheel odometry linear scale from 10 m fusion-odom field validation.',
+            default_value='1.19',
+            description='Wheel odom linear scale. Sand 2026-06-10: 10 m odom vs 8.245 m tape (~21% slip).',
         ),
         DeclareLaunchArgument(
             'angular_scale',

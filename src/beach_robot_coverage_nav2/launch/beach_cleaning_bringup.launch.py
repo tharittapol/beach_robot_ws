@@ -83,7 +83,7 @@ def generate_launch_description():
         DeclareLaunchArgument('esp32_port', default_value='/dev/ttyESP32'),
         DeclareLaunchArgument('wheel_cmd_send_rate_hz', default_value='20.0'),
         DeclareLaunchArgument('publish_raw_json', default_value='false'),
-        DeclareLaunchArgument('linear_scale', default_value='1.45'),
+        DeclareLaunchArgument('linear_scale', default_value='1.19'),  # sand 2026-06-10: 10 m odom vs 8.245 m tape (~21% slip)
         DeclareLaunchArgument('angular_scale', default_value='1.0'),
         DeclareLaunchArgument('mixer_params_file', default_value=default_mixer_params),
         DeclareLaunchArgument(
