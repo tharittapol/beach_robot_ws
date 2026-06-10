@@ -68,7 +68,8 @@ The rear encoder scale of **0.64** compensates for chain drive reduction.
 | ESP32 PID Kp | [0.15, 0.18, 0.04, 0.03] | On-air test 2026-03-21 |
 | ESP32 PID Ki | [0.08, 0.08, 0.05, 0.05] | **Sand field tune 2026-06-09** (was [0.01,0.01,0,0]; raised for hill/sustained-load climb) |
 | ESP32 `ACTIVE_U_FLOOR` | [0.12, 0.12, 0.06, 0.06] | **Sand field tune 2026-06-09** (front was 0.22; lowered to kill low-speed stick-slip stutter) |
-| `turn_gain_front` (mixer) | 1.3 | **Sand field tune 2026-06-09** (was 2.45; 2.45 collapsed inside front wheel → arc became pivot/stall) |
+| `turn_gain_front` (mixer) | 1.6 | **Sand 2026-06-10** (2.45 collapsed inside front→pivot/stall; 1.3→~2.0 m turn; **1.6→~1.75 m clean turn**, inside front ≥0.12) |
+| Coverage `turn_radius` (sand) | 1.8 m | **Sand 2026-06-10** (rear round wheels slip in turns → robot under-rotates; tightest clean radius ~1.08 m only at v=0.5; 1.8 m works at slow safe speed) |
 | Wheel V_MAX | [1.25, 1.10, 9.70, 8.60] m/s | Hardware characterisation |
 
 ---

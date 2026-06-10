@@ -14,7 +14,7 @@ wheel_mps_mixer:
     # outdoor surface. Sand 2026-06-09: 2.45 collapsed the inside front wheel to
     # ~0.03 m/s (arc degenerated to a pivot, inside track stalled). 1.3 keeps the
     # inside front command >= ~0.12 m/s (breakaway) so both front tracks drive.
-    turn_gain_front: 1.3
+    turn_gain_front: 1.6  # sand 2026-06-10: ~1.75 m clean turn @ v0.3-0.35 (1.3 gave ~2.0 m); inside front cmd stays >=0.12
     turn_gain_rear: 1.45
     in_place_linear_threshold: 0.03
     in_place_angular_threshold: 0.03
