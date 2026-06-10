@@ -326,23 +326,17 @@ class Teleop4WDSkid(Node):
             self.last_joy_time is None or
             (now - self.last_joy_time) > self.joy_timeout_sec
         )
-        if not self.manual_mode:
-            # Auto mode: Nav2 owns /cmd_vel. Stay silent — publishing zero here just fights
-            # Nav2. E-STOP is enforced at the ESP32 bridge (it force-zeros motors on /e_stop).
+        # Publish /cmd_vel ONLY while actively hand-driving: manual mode + deadman held + not
+        # e-stop + fresh joystick. In EVERY other case (auto mode, deadman released, e-stop,
+        # stale joy) stay SILENT — otherwise teleop spams zero /cmd_vel and fights Nav2 during
+        # coverage (controller reports "Failed to make progress" and the robot never moves).
+        # Stopping is handled elsewhere: the ESP32 bridge E-STOP force-zeros motors on /e_stop,
+        # and the mixer's ~300 ms cmd_vel watchdog zeros the wheels when nobody is publishing.
+        if (not self.manual_mode or not self.deadman_active
+                or self.estop_active or joy_stale):
             self._set_target_zero()
             self.current_v = 0.0
             self.current_w = 0.0
-            return
-        force_zero = (
-            joy_stale or
-            self.estop_active or
-            not self.deadman_active
-        )
-        if force_zero:
-            self._set_target_zero()
-            self.current_v = 0.0
-            self.current_w = 0.0
-            self._publish_cmd(0.0, 0.0)
             return
 
         self.current_v = self._slew(
