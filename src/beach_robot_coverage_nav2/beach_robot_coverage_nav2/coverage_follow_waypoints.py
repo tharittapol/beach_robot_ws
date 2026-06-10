@@ -470,8 +470,8 @@ class CoverageFollowWaypoints(Node):
                     poses.append(self._pose(mx, my, self.area.yaw + lyaw))
                 forward = not forward
             else:
-                # between-pass deadhead: loop around the area end (opposite side) → clean ≥R arcs
-                new_forward = abs(end_x - self._x1) < abs(end_x - self._x0)
+                # between-pass deadhead: local teardrop loop on the SAME end → start nearest side
+                new_forward = abs(end_x - self._x0) < abs(end_x - self._x1)
                 start_x = self._x0 if new_forward else self._x1
                 for lx, lya, lyaw in self._deadhead_path((end_x, ly), (start_x, next_y)):
                     mx, my = self._to_map(lx, lya)
@@ -703,46 +703,72 @@ class CoverageFollowWaypoints(Node):
     # first lane. Path = perimeter waypoints; RegulatedPurePursuit rounds the corners as
     # long as the clearance ≥ turn_radius. Uses NavigateThroughPoses (same as arc turns).
 
+    def _sample_arc(self, c, p0, p1, rho, r, step, out):
+        """Append points along the arc on circle (centre c, radius r) from p0 to p1, turning
+        rho=+1 CCW / -1 CW. Each point is (x, y, yaw=tangent heading)."""
+        a0 = math.atan2(p0[1] - c[1], p0[0] - c[0])
+        a1 = math.atan2(p1[1] - c[1], p1[0] - c[0])
+        sweep = (a1 - a0) % (2.0 * math.pi) if rho > 0 else -((a0 - a1) % (2.0 * math.pi))
+        if abs(sweep) < 1e-9:
+            return
+        n = max(2, int(math.ceil(r * abs(sweep) / max(step, 0.1))))
+        tang = math.pi / 2.0 if rho > 0 else -math.pi / 2.0
+        for k in range(1, n + 1):
+            ang = a0 + sweep * (k / n)
+            out.append((c[0] + r * math.cos(ang), c[1] + r * math.sin(ang), ang + tang))
+
+    def _teardrop(self, xe, ya, yb, s, r, step):
+        """Forward-only minimum-radius loop (Dubins LRL/RLR) that repositions a lane end at
+        (xe, ya) heading outward (s=+1 → +x, s=-1 → -x) to (xe, yb) heading inward, keeping
+        every arc ≥ r. Used for the between-pass deadhead: it shifts the fine (< 2r) pass
+        offset locally — bulges outward ≈ (√3+1)·r — instead of looping around the whole area.
+        Falls back to a plain semicircle when |Δy| ≥ 2r (gap already wide enough)."""
+        d_local = (yb - ya) if s > 0 else (ya - yb)
+
+        def to_global(lx, ly, lyaw):
+            return (xe + lx, ya + ly, lyaw) if s > 0 else (xe - lx, ya - ly, lyaw + math.pi)
+
+        if abs(d_local) < 1e-6:
+            return [(xe, yb, math.pi if s > 0 else 0.0)]
+        loc = [(0.0, 0.0, 0.0)]
+        if abs(d_local) >= 2.0 * r:                       # wide gap → semicircle (radius ≥ r)
+            self._sample_arc((0.0, d_local / 2.0), (0.0, 0.0), (0.0, d_local),
+                             1.0 if d_local > 0 else -1.0, abs(d_local) / 2.0, step, loc)
+        else:                                             # tight gap → LRL/RLR teardrop
+            sg = 1.0 if d_local > 0 else -1.0
+            c1 = (0.0, sg * r)
+            c2 = (0.0, d_local - sg * r)
+            half = abs(c1[1] - c2[1]) / 2.0
+            xm = math.sqrt(max(0.0, (2.0 * r) ** 2 - half * half))
+            cm = (xm, d_local / 2.0)
+            t1 = ((c1[0] + cm[0]) / 2.0, (c1[1] + cm[1]) / 2.0)
+            t2 = ((cm[0] + c2[0]) / 2.0, (cm[1] + c2[1]) / 2.0)
+            self._sample_arc(c1, (0.0, 0.0), t1, sg, r, step, loc)
+            self._sample_arc(cm, t1, t2, -sg, r, step, loc)
+            self._sample_arc(c2, t2, (0.0, d_local), sg, r, step, loc)
+        return [to_global(*p) for p in loc]
+
     def _deadhead_path(self, a, b):
-        """Waypoints from lane-end a=(xa,ya) to next-lane-start b=(xb,yb), in local coords.
-        'direct' → straight line (Nav2 plans around obstacles); 'outside' → out to the near
-        outer edge, along the outer perimeter, back in."""
+        """Lane-end a=(xa,ya) → next-lane-start b=(xb,yb). 'direct' = straight line; 'outside' =
+        a local minimum-radius teardrop loop (every arc ≥ turn_radius). a and b share the end
+        x-rail (same-side deadhead)."""
         xa, ya = a
         xb, yb = b
         if self.deadhead_style == 'direct':
             yaw = math.atan2(yb - ya, xb - xa)
             return [(lx, ly, yaw) for lx, ly in self._sample_line(a, b, self.waypoint_step)]
-
-        clr = self.deadhead_clearance
-        xa_out = self._x1 + clr if abs(xa - self._x1) < abs(xa - self._x0) else self._x0 - clr
-        xb_out = self._x1 + clr if abs(xb - self._x1) < abs(xb - self._x0) else self._x0 - clr
-
-        corners = [a, (xa_out, ya)]                       # straight out to the near rail
-        if abs(xa_out - xb_out) < 1e-6:
-            corners.append((xb_out, yb))                  # same side: straight along the rail
-        else:
-            # opposite sides: go around the nearer (bottom or top) outer rail. Push the rail out
-            # by 2·turn_radius so the vertical legs are ≥ 2R and every corner keeps a full-R arc.
-            yclr = 2.0 * self.turn_radius
-            d_bot = (ya - self._y0) + (yb - self._y0)
-            d_top = (self._y1 - ya) + (self._y1 - yb)
-            y_rail = (self._y0 - yclr) if d_bot <= d_top else (self._y1 + yclr)
-            corners += [(xa_out, y_rail), (xb_out, y_rail), (xb_out, yb)]
-        corners.append(b)                                 # straight back in
-
-        # Round every corner into a tangent arc (radius ≤ turn_radius) so the deadhead is a
-        # smooth curve, not a 90° dog-leg. Same-side gaps < 2·turn_radius get a tighter arc.
-        return self._round_corners(corners, self.turn_radius, self.waypoint_step)
+        xe = xa
+        s = 1.0 if abs(xe - self._x1) < abs(xe - self._x0) else -1.0   # +1 outward = +x
+        return self._teardrop(xe, ya, yb, s, self.turn_radius, self.waypoint_step)
 
     def _run_deadhead(self):
         self._phase = 'deadhead'
         end_x = self._x1 if self._forward else self._x0
         a = (end_x, self._current_y)
         next_y = self._lane_ys[self._lane_idx]
-        # Start the new pass on the OPPOSITE side so the reposition loops around the area end
-        # (long legs → every deadhead corner gets a full turn_radius arc, ≥ 1.8 m). Costs extra
-        # travel, but it is the only ≥R way to shift between fine (0.6 m) passes.
-        new_forward = abs(end_x - self._x1) < abs(end_x - self._x0)
+        # Same-side teardrop loop: start the next pass on the side nearest the current end,
+        # so the local Dubins loop stays on this end x-rail (shifts the fine offset, ≥R arcs).
+        new_forward = abs(end_x - self._x0) < abs(end_x - self._x1)
         start_x = self._x0 if new_forward else self._x1
         self._deadhead_next_y = next_y
         self._deadhead_new_forward = new_forward
