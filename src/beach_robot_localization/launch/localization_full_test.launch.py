@@ -5,7 +5,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 
@@ -32,6 +32,7 @@ def generate_launch_description():
     use_mixer = LaunchConfiguration('use_mixer')
     use_zed = LaunchConfiguration('use_zed')
     use_gnss = LaunchConfiguration('use_gnss')
+    launch_gnss_driver = LaunchConfiguration('launch_gnss_driver')
     gnss_gga_send_period = LaunchConfiguration('gnss_gga_send_period')
     gnss_force_gpgga = LaunchConfiguration('gnss_force_gpgga')
 
@@ -67,7 +68,14 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'use_gnss',
             default_value='true',
-            description='Launch UM982 GNSS and publish /odometry/gps for report bags.',
+            description='Run navsat_transform → /odometry/gps and (if launch_gnss_driver) the UM982 driver.',
+        ),
+        DeclareLaunchArgument(
+            'launch_gnss_driver',
+            default_value='true',
+            description='Launch the UM982 bridge here. Set false to keep GNSS as a SEPARATE persistent '
+                        'node (run um982_fix_nema.launch.py once and leave it converging) so restarting '
+                        'this stack does not reset the RTK fix; navsat_transform still runs under use_gnss.',
         ),
         DeclareLaunchArgument(
             'gnss_gga_send_period',
@@ -194,6 +202,8 @@ def generate_launch_description():
             condition=IfCondition(use_zed),
         ),
 
+        # UM982 driver — only when launch_gnss_driver is true. Keep it false to run the GNSS as a
+        # separate persistent node (um982_fix_nema.launch.py) so the RTK fix stays converged.
         _include(
             'beach_robot_gnss',
             'launch/um982_fix_nema.launch.py',
@@ -201,7 +211,8 @@ def generate_launch_description():
                 'gga_send_period': gnss_gga_send_period,
                 'force_gpgga': gnss_force_gpgga,
             },
-            condition=IfCondition(use_gnss),
+            condition=IfCondition(PythonExpression(
+                ["'", use_gnss, "' == 'true' and '", launch_gnss_driver, "' == 'true'"])),
         ),
 
         _include(

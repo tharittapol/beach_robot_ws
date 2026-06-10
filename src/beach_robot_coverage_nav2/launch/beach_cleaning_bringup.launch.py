@@ -14,6 +14,8 @@ def generate_launch_description():
     use_robot_stack = LaunchConfiguration('use_robot_stack')
     use_zed = LaunchConfiguration('use_zed')
     use_gnss = LaunchConfiguration('use_gnss')
+    launch_gnss_driver = LaunchConfiguration('launch_gnss_driver')
+    use_teleop = LaunchConfiguration('use_teleop')
     esp32_port = LaunchConfiguration('esp32_port')
     wheel_cmd_send_rate_hz = LaunchConfiguration('wheel_cmd_send_rate_hz')
     publish_raw_json = LaunchConfiguration('publish_raw_json')
@@ -80,6 +82,14 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument('use_zed', default_value='true'),
         DeclareLaunchArgument('use_gnss', default_value='false'),
+        DeclareLaunchArgument('launch_gnss_driver', default_value='true',
+                              description='false → GNSS runs as a SEPARATE persistent node '
+                                          '(um982_fix_nema.launch.py, kept on so RTK stays converged); '
+                                          'the stack then only runs navsat_transform.'),
+        DeclareLaunchArgument('use_teleop', default_value='true',
+                              description='Joystick teleop during coverage. Needed for the Y E-STOP '
+                                          '(teleop → /e_stop → bridge force-stops). It yields /cmd_vel to '
+                                          'Nav2 in auto mode, so it does not fight the controller.'),
         DeclareLaunchArgument('esp32_port', default_value='/dev/ttyESP32'),
         DeclareLaunchArgument('wheel_cmd_send_rate_hz', default_value='20.0'),
         DeclareLaunchArgument('publish_raw_json', default_value='false'),
@@ -128,9 +138,10 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(localization_launch),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            'use_teleop': 'false',
+            'use_teleop': use_teleop,
             'use_zed': use_zed,
             'use_gnss': use_gnss,
+            'launch_gnss_driver': launch_gnss_driver,
             'esp32_port': esp32_port,
             'wheel_cmd_send_rate_hz': wheel_cmd_send_rate_hz,
             'publish_raw_json': publish_raw_json,
