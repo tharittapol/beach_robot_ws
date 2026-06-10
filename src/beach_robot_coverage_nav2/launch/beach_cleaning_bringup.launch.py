@@ -96,7 +96,7 @@ def generate_launch_description():
         DeclareLaunchArgument('coverage_pattern', default_value='boustrophedon'),
         DeclareLaunchArgument('area_origin_x', default_value='0.0'),
         DeclareLaunchArgument('area_origin_y', default_value='0.0'),
-        DeclareLaunchArgument('area_width', default_value='20.0'),   # sand: long lane axis
+        DeclareLaunchArgument('area_width', default_value='10.0'),   # sand: long lane axis
         DeclareLaunchArgument('area_height', default_value='5.0'),    # sand: lanes stacked across
         DeclareLaunchArgument('area_yaw', default_value='0.0'),
         DeclareLaunchArgument('tool_width', default_value='0.60'),

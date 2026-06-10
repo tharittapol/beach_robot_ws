@@ -470,8 +470,8 @@ class CoverageFollowWaypoints(Node):
                     poses.append(self._pose(mx, my, self.area.yaw + lyaw))
                 forward = not forward
             else:
-                # between-pass deadhead loop (outside the work area)
-                new_forward = abs(end_x - self._x0) < abs(end_x - self._x1)
+                # between-pass deadhead: loop around the area end (opposite side) → clean ≥R arcs
+                new_forward = abs(end_x - self._x1) < abs(end_x - self._x0)
                 start_x = self._x0 if new_forward else self._x1
                 for lx, lya, lyaw in self._deadhead_path((end_x, ly), (start_x, next_y)):
                     mx, my = self._to_map(lx, lya)
@@ -721,10 +721,12 @@ class CoverageFollowWaypoints(Node):
         if abs(xa_out - xb_out) < 1e-6:
             corners.append((xb_out, yb))                  # same side: straight along the rail
         else:
-            # opposite sides: go around the nearer (bottom or top) outer rail
+            # opposite sides: go around the nearer (bottom or top) outer rail. Push the rail out
+            # by 2·turn_radius so the vertical legs are ≥ 2R and every corner keeps a full-R arc.
+            yclr = 2.0 * self.turn_radius
             d_bot = (ya - self._y0) + (yb - self._y0)
             d_top = (self._y1 - ya) + (self._y1 - yb)
-            y_rail = (self._y0 - clr) if d_bot <= d_top else (self._y1 + clr)
+            y_rail = (self._y0 - yclr) if d_bot <= d_top else (self._y1 + yclr)
             corners += [(xa_out, y_rail), (xb_out, y_rail), (xb_out, yb)]
         corners.append(b)                                 # straight back in
 
@@ -737,8 +739,10 @@ class CoverageFollowWaypoints(Node):
         end_x = self._x1 if self._forward else self._x0
         a = (end_x, self._current_y)
         next_y = self._lane_ys[self._lane_idx]
-        # start the new pass on the side nearest the current end (less outside travel)
-        new_forward = abs(end_x - self._x0) < abs(end_x - self._x1)
+        # Start the new pass on the OPPOSITE side so the reposition loops around the area end
+        # (long legs → every deadhead corner gets a full turn_radius arc, ≥ 1.8 m). Costs extra
+        # travel, but it is the only ≥R way to shift between fine (0.6 m) passes.
+        new_forward = abs(end_x - self._x1) < abs(end_x - self._x0)
         start_x = self._x0 if new_forward else self._x1
         self._deadhead_next_y = next_y
         self._deadhead_new_forward = new_forward
