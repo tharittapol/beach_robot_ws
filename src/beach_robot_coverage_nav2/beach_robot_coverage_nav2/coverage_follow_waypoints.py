@@ -502,7 +502,7 @@ class CoverageFollowWaypoints(Node):
     # ---- navigation: boustrophedon state machine ----
     #
     # Flow per lane:
-    #   _run_lane       →  FollowWaypoints (full lane including endpoint p1 = arc start)
+    #   _run_lane       →  NavigateThroughPoses (continuous, full lane incl. endpoint p1 = arc start)
     #   _on_lane_done   →  _run_turn (NavigateThroughPoses with arc waypoints)
     #   _run_turn       →  starts _in_turn=True, monitors yaw via _check_turn_yaw
     #
@@ -580,9 +580,12 @@ class CoverageFollowWaypoints(Node):
 
         self._nav_epoch += 1
         epoch = self._nav_epoch
-        goal = FollowWaypoints.Goal()
+        # NavigateThroughPoses follows the whole lane as one continuous path (does NOT stop /
+        # decelerate at each waypoint the way FollowWaypoints does), while still tracking the
+        # exact lane line — same mechanism as the arc turns / deadheads.
+        goal = NavigateThroughPoses.Goal()
         goal.poses = poses
-        future = self._follow_ac.send_goal_async(goal)
+        future = self._through_ac.send_goal_async(goal)
         future.add_done_callback(partial(self._on_lane_accepted, epoch=epoch))
 
     def _on_lane_accepted(self, future, epoch):
@@ -595,7 +598,7 @@ class CoverageFollowWaypoints(Node):
                 handle.cancel_goal_async()
             return
         if not handle.accepted:
-            self.get_logger().error('Lane goal rejected by FollowWaypoints server.')
+            self.get_logger().error('Lane goal rejected by NavigateThroughPoses server.')
             return
         self._lane_goal_handle = handle
         handle.get_result_async().add_done_callback(
