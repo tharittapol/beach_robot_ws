@@ -62,7 +62,11 @@ def generate_launch_description():
         DeclareLaunchArgument('max_z', default_value='1.50'),
         DeclareLaunchArgument('min_points', default_value='5'),
         DeclareLaunchArgument('clear_time_sec', default_value='3.0'),
-        DeclareLaunchArgument('fail_safe_on_cloud_timeout', default_value='true'),
+        DeclareLaunchArgument(
+            'fail_safe_on_cloud_timeout',
+            default_value='false',
+            description='When false, a missing/stale cloud does not trigger the safety E-stop.',
+        ),
         DeclareLaunchArgument(
             'filter_min_range',
             default_value='0.25',

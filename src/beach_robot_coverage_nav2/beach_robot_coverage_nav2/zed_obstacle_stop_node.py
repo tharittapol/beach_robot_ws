@@ -26,7 +26,7 @@ class ZedObstacleStopNode(Node):
         self.declare_parameter('min_points', 5)
         self.declare_parameter('clear_time_sec', 3.0)
         self.declare_parameter('cloud_timeout_sec', 1.0)
-        self.declare_parameter('fail_safe_on_cloud_timeout', True)
+        self.declare_parameter('fail_safe_on_cloud_timeout', False)
         self.declare_parameter('state_publish_rate_hz', 10.0)
         self.declare_parameter('beep_period_sec', 1.0)
         self.declare_parameter('beep_duration_sec', 0.4)
@@ -123,7 +123,8 @@ class ZedObstacleStopNode(Node):
             if self.fail_safe_on_cloud_timeout:
                 self._set_stop(True, None, 'cloud timeout')
             elif not self._timeout_warned:
-                self.get_logger().warn('No fresh ZED filtered cloud; obstacle stop is not fail-safe.')
+                self.get_logger().warn(
+                    'No fresh ZED filtered cloud; timeout ignored, E-stop unchanged.')
                 self._timeout_warned = True
         elif not self._raw_obstacle and self._stop_active:
             if self._clear_start is None:

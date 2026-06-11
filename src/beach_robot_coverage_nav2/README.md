@@ -155,6 +155,7 @@ ros2 topic echo /cmd_vel
 - ร้อง buzzer เป็นระยะ
 - คง Nav2 goal เดิมไว้
 - เมื่อทางโล่งต่อเนื่องเกิน 3 วินาที publish `/safety/e_stop=false` แล้ว Nav2 วิ่งต่อ
+- ถ้า point cloud timeout ระบบจะแจ้งเตือนใน log แต่ไม่ trigger E-stop
 
 Coverage bringup เปิด **กล้อง ZED + สาย E-stop** (bridge OR `/e_stop` จอย กับ `/safety/e_stop`)
 ให้พร้อม แต่ **ไม่ได้ spawn ตัว detector เอง** — รัน node ตรวจจับแยก (persistent เหมือน GNSS):
