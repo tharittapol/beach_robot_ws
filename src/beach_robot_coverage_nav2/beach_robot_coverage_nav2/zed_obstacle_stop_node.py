@@ -20,7 +20,7 @@ class ZedObstacleStopNode(Node):
         self.declare_parameter('cloud_topic', '/zed/filtered_cloud')
         self.declare_parameter('min_forward_distance', 0.25)
         self.declare_parameter('stop_distance', 2.0)
-        self.declare_parameter('box_width', 1.6)
+        self.declare_parameter('box_width', 0.8)
         self.declare_parameter('cone_half_width', -1.0)
         self.declare_parameter('min_z', 0.12)
         self.declare_parameter('max_z', 1.5)

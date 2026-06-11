@@ -177,7 +177,7 @@ def generate_launch_description():
         # This bringup already opens the ZED camera (use_zed) and the ESP32 bridge already
         # ORs the manual /e_stop (joystick) with the detector's /safety/e_stop.
         DeclareLaunchArgument('obstacle_stop_distance', default_value='2.0'),
-        DeclareLaunchArgument('obstacle_box_width', default_value='1.6'),
+        DeclareLaunchArgument('obstacle_box_width', default_value='0.8'),
         DeclareLaunchArgument('obstacle_clear_time_sec', default_value='3.0'),
     ]
 

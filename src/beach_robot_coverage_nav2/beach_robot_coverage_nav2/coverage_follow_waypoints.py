@@ -81,7 +81,7 @@ class CoverageFollowWaypoints(Node):
         self.declare_parameter('obstacle_stop.cloud_topic', '/zed/filtered_cloud')
         self.declare_parameter('obstacle_stop.min_forward_distance', 0.25)
         self.declare_parameter('obstacle_stop.stop_distance', 2.0)
-        self.declare_parameter('obstacle_stop.box_width', 1.6)
+        self.declare_parameter('obstacle_stop.box_width', 0.8)
         self.declare_parameter('obstacle_stop.min_z', 0.12)
         self.declare_parameter('obstacle_stop.max_z', 1.5)
         self.declare_parameter('obstacle_stop.min_points', 5)

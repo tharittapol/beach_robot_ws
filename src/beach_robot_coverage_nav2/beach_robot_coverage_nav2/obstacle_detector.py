@@ -118,7 +118,7 @@ class FrontBoxMonitor:
         cloud_topic: str = '/zed/filtered_cloud',
         min_forward_distance: float = 0.25,
         stop_distance: float = 2.0,
-        box_width: float = 1.6,
+        box_width: float = 0.8,
         min_z: float = 0.12,
         max_z: float = 1.5,
         min_points: int = 5,
@@ -249,7 +249,7 @@ def main(args=None):
     node.declare_parameter('cloud_topic', '/zed/filtered_cloud')
     node.declare_parameter('min_forward_distance', 0.25)
     node.declare_parameter('stop_distance', 2.0)
-    node.declare_parameter('box_width', 1.6)
+    node.declare_parameter('box_width', 0.8)
     node.declare_parameter('min_z', 0.12)
     node.declare_parameter('max_z', 1.5)
     node.declare_parameter('min_points', 5)

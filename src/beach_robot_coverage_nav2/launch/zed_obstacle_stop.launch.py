@@ -56,7 +56,7 @@ def generate_launch_description():
         DeclareLaunchArgument('stop_distance', default_value='2.0'),
         DeclareLaunchArgument(
             'box_width',
-            default_value='1.6',
+            default_value='0.8',
             description='Constant total width of the straight obstacle box (m).',
         ),
         DeclareLaunchArgument(
