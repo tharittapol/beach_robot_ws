@@ -50,6 +50,7 @@ public:
     RCLCPP_INFO(get_logger(), "input:        %s", input_cloud_topic_.c_str());
     RCLCPP_INFO(get_logger(), "output:       %s", output_cloud_topic_.c_str());
     RCLCPP_INFO(get_logger(), "target_frame: %s", target_frame_.c_str());
+    RCLCPP_INFO(get_logger(), "TF lookup mode: latest available transform (TimePointZero)");
     RCLCPP_INFO(
       get_logger(), "filter: range %.2f..%.2f m, z %.2f..%.2f m, decimate %d, %.1f Hz",
       min_range_, max_range_, min_z_, max_z_, decimate_n_, throttle_hz_);

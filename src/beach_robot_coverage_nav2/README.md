@@ -173,6 +173,9 @@ ros2 launch beach_robot_coverage_nav2 zed_obstacle_stop.launch.py launch_zed:=fa
 ros2 launch beach_robot_coverage_nav2 zed_obstacle_stop.launch.py
 ```
 
+โปรไฟล์ `zedm_orin_nano_depth.yaml` ปิด ZED positional tracking และ
+`depth_stabilization` แล้ว แต่ยังเปิด depth point cloud สำหรับ obstacle detection
+
 สำหรับหยุดล้อจริง ต้องมี `beach_robot_esp32_bridge` รันอยู่ด้วย
 
 ถ้า ZED camera และ `/zed/filtered_cloud` รันอยู่แล้ว:
@@ -187,11 +190,17 @@ ros2 launch beach_robot_coverage_nav2 zed_obstacle_stop.launch.py launch_zed:=fa
 ros2 topic echo /safety/obstacle_stop
 ros2 topic echo /safety/obstacle_distance
 ros2 topic echo /safety/obstacle_point_count
+ros2 topic echo /safety/obstacle_bounds
 ros2 topic echo /safety/e_stop
 ```
 
+`/safety/obstacle_point_count=-1` หมายถึง cloud timeout และไม่มีข้อมูลเฟรมใหม่
+ไม่ใช่จำนวน obstacle point จริง
+
 สำหรับตรวจ false positive ให้เพิ่ม PointCloud2 `/safety/obstacle_points` ใน RViz2
 topic นี้แสดงเฉพาะจุดที่ detector นับว่าอยู่ภายในกล่องตรวจจับ
+ถ้า PointCloud2 แสดงผลไม่ได้ ให้เพิ่ม MarkerArray `/safety/obstacle_markers` แทน:
+กล่องตรวจจับเป็นสีเขียวโปร่ง และจุดที่ถูกนับเป็นสีแดง
 
 ขอบเขตตรวจจับเป็นกล่องใน frame `base_link`:
 

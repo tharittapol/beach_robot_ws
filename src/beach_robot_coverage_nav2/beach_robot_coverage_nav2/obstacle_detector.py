@@ -22,8 +22,10 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from geometry_msgs.msg import Point
 from sensor_msgs.msg import PointCloud2, PointField
 from sensor_msgs_py import point_cloud2
+from visualization_msgs.msg import Marker, MarkerArray
 
 
 DEBUG_CLOUD_FIELDS = [
@@ -121,6 +123,7 @@ class FrontBoxMonitor:
         max_z: float = 1.5,
         min_points: int = 5,
         debug_cloud_topic: str = '/safety/obstacle_points',
+        debug_marker_topic: str = '/safety/obstacle_markers',
         publish_debug_cloud: bool = True,
     ):
         self._node = node
@@ -135,8 +138,14 @@ class FrontBoxMonitor:
         self.present: bool = False
         self.nearest_x: Optional[float] = None
         self.point_count: int = 0
+        self.point_min: Optional[np.ndarray] = None
+        self.point_max: Optional[np.ndarray] = None
         self._debug_pub = (
             node.create_publisher(PointCloud2, debug_cloud_topic, qos_profile_sensor_data)
+            if publish_debug_cloud else None
+        )
+        self._marker_pub = (
+            node.create_publisher(MarkerArray, debug_marker_topic, 10)
             if publish_debug_cloud else None
         )
 
@@ -158,6 +167,8 @@ class FrontBoxMonitor:
             return
 
         self.point_count = len(points)
+        self.point_min = np.min(points, axis=0) if self.point_count else None
+        self.point_max = np.max(points, axis=0) if self.point_count else None
         present = self.point_count >= self.min_points
         nearest_x = float(np.min(points[:, 0])) if present else None
         if self._debug_pub is not None:
@@ -169,10 +180,53 @@ class FrontBoxMonitor:
             debug_cloud = point_cloud2.create_cloud(
                 msg.header, DEBUG_CLOUD_FIELDS, debug_points)
             self._debug_pub.publish(debug_cloud)
+        if self._marker_pub is not None:
+            self._publish_debug_markers(msg.header.frame_id, points)
 
         self.present = present
         self.nearest_x = nearest_x
         self._on_update(present, nearest_x)
+
+    def _publish_debug_markers(self, frame_id: str, points: np.ndarray):
+        stamp = self._node.get_clock().now().to_msg()
+
+        selected = Marker()
+        selected.header.frame_id = frame_id
+        selected.header.stamp = stamp
+        selected.ns = 'obstacle_points'
+        selected.id = 0
+        selected.type = Marker.POINTS
+        selected.action = Marker.ADD
+        selected.pose.orientation.w = 1.0
+        selected.scale.x = 0.06
+        selected.scale.y = 0.06
+        selected.color.r = 1.0
+        selected.color.g = 0.05
+        selected.color.b = 0.05
+        selected.color.a = 1.0
+        selected.points = [
+            Point(x=float(x), y=float(y), z=float(z)) for x, y, z in points
+        ]
+
+        box = Marker()
+        box.header.frame_id = frame_id
+        box.header.stamp = stamp
+        box.ns = 'obstacle_box'
+        box.id = 1
+        box.type = Marker.CUBE
+        box.action = Marker.ADD
+        box.pose.position.x = (self.min_forward_distance + self.stop_distance) / 2.0
+        box.pose.position.z = (self.min_z + self.max_z) / 2.0
+        box.pose.orientation.w = 1.0
+        box.scale.x = self.stop_distance - self.min_forward_distance
+        box.scale.y = self.box_width
+        box.scale.z = self.max_z - self.min_z
+        box.color.r = 0.1
+        box.color.g = 0.8
+        box.color.b = 0.2
+        box.color.a = 0.15
+
+        self._marker_pub.publish(MarkerArray(markers=[box, selected]))
 
 
 def main(args=None):

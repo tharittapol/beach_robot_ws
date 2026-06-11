@@ -27,7 +27,9 @@
 
     depth:
       depth_mode: 'PERFORMANCE'
-      depth_stabilization: 1
+      # Keep positional tracking fully disabled. Any value > 0 makes zed_wrapper
+      # force-enable tracking even when pos_tracking_enabled is false.
+      depth_stabilization: 0
       point_cloud_freq: 10.0
       publish_depth_map: false
       publish_depth_info: false
