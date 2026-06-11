@@ -7,6 +7,7 @@
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 
+#include "tf2/time.h"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 #include "tf2_sensor_msgs/tf2_sensor_msgs.hpp"
@@ -64,12 +65,17 @@ private:
       last_pub_time_ = now;
     }
 
-    // TF transform into target_frame
+    // TF transform into target_frame.
+    // The camera→base_link transform is a rigid (static) mount, so the exact cloud
+    // timestamp is irrelevant. Looking up at the cloud stamp fails with "extrapolation
+    // into the future" whenever the cloud is stamped slightly ahead of the latest TF
+    // sample (e.g. when depth_stabilization force-enables positional tracking). Those
+    // drops starve /zed/filtered_cloud and trip the obstacle node's cloud-timeout
+    // fail-safe. Use the latest available transform (TimePointZero) instead.
     sensor_msgs::msg::PointCloud2 cloud_tf;
     try {
       auto tf = tf_buffer_.lookupTransform(
-        target_frame_, msg->header.frame_id, msg->header.stamp,
-        rclcpp::Duration::from_seconds(0.1));
+        target_frame_, msg->header.frame_id, tf2::TimePointZero);
       tf2::doTransform(*msg, cloud_tf, tf);
     } catch (const tf2::TransformException & ex) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
@@ -80,7 +86,7 @@ private:
 
     // Output cloud with xyz only
     sensor_msgs::msg::PointCloud2 out;
-    out.header.stamp = cloud_tf.header.stamp;
+    out.header.stamp = msg->header.stamp;   // keep the camera capture time, not the TF time
     out.header.frame_id = target_frame_;
     out.height = 1;
     out.is_bigendian = cloud_tf.is_bigendian;
