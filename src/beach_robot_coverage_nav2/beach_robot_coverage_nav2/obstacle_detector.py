@@ -122,6 +122,7 @@ class FrontBoxMonitor:
         min_z: float = 0.12,
         max_z: float = 1.5,
         min_points: int = 5,
+        expected_frame: str = 'base_link',
         debug_cloud_topic: str = '/safety/obstacle_points',
         debug_marker_topic: str = '/safety/obstacle_markers',
         publish_debug_cloud: bool = True,
@@ -134,6 +135,8 @@ class FrontBoxMonitor:
         self.min_z = float(min_z)
         self.max_z = max(self.min_z, float(max_z))
         self.min_points = max(1, int(min_points))
+        self.expected_frame = expected_frame.lstrip('/')
+        self._bad_frame_warned: Optional[str] = None
 
         self.present: bool = False
         self.nearest_x: Optional[float] = None
@@ -153,6 +156,16 @@ class FrontBoxMonitor:
             PointCloud2, cloud_topic, self._cloud_cb, qos_profile_sensor_data)
 
     def _cloud_cb(self, msg: PointCloud2):
+        frame_id = msg.header.frame_id.lstrip('/')
+        if frame_id != self.expected_frame:
+            if frame_id != self._bad_frame_warned:
+                self._node.get_logger().warn(
+                    f'Ignoring obstacle cloud in frame {msg.header.frame_id!r}; '
+                    f'expected {self.expected_frame!r}. Transform it before publishing.')
+                self._bad_frame_warned = frame_id
+            return
+        self._bad_frame_warned = None
+
         try:
             points = extract_front_box_points(
                 msg,

@@ -92,6 +92,7 @@ def generate_launch_description():
                 'use_static_tf': use_static_tf,
                 'target_frame': 'base_link',
                 'zed_params_override': zed_params_override,
+                'output_cloud_topic': cloud_topic,
                 'filter_min_range': filter_min_range,
                 'filter_max_range': filter_max_range,
                 'filter_min_z': filter_min_z,

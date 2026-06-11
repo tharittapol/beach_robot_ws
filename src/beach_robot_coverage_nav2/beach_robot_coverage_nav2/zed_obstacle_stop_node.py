@@ -92,6 +92,7 @@ class ZedObstacleStopNode(Node):
             min_z=float(self.get_parameter('min_z').value),
             max_z=float(self.get_parameter('max_z').value),
             min_points=int(self.get_parameter('min_points').value),
+            expected_frame='base_link',
             debug_cloud_topic=str(self.get_parameter('debug_cloud_topic').value),
             debug_marker_topic=str(self.get_parameter('debug_marker_topic').value),
             publish_debug_cloud=self._as_bool(
@@ -102,6 +103,7 @@ class ZedObstacleStopNode(Node):
 
         self.get_logger().info(
             f'ZED obstacle stop: cloud={cloud_topic} '
+            f'frame={self._monitor.expected_frame} '
             f'x={self._monitor.min_forward_distance:.2f}..'
             f'{self._monitor.stop_distance:.2f}m '
             f'box_width={self._monitor.box_width:.2f}m '

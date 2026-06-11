@@ -12,6 +12,7 @@ def generate_launch_description():
     use_static_tf = LaunchConfiguration("use_static_tf")
     target_frame = LaunchConfiguration("target_frame")
     zed_params_override = LaunchConfiguration("zed_params_override")
+    output_cloud_topic = LaunchConfiguration("output_cloud_topic")
     filter_min_range = LaunchConfiguration("filter_min_range")
     filter_max_range = LaunchConfiguration("filter_max_range")
     filter_min_z = LaunchConfiguration("filter_min_z")
@@ -24,10 +25,7 @@ def generate_launch_description():
         get_package_share_directory("zed_wrapper")
         + "/launch/zed_camera.launch.py"
     )
-    static_tf_launch = (
-        get_package_share_directory("beach_robot_localization")
-        + "/launch/static_sensors_tf.launch.py"
-    )
+    static_tf_launch = pkg_share + "/launch/zedm_static_tf.launch.py"
 
     static_tf_node = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(static_tf_launch),
@@ -59,8 +57,8 @@ def generate_launch_description():
             # ZED wrapper typical registered cloud topic
             "input_cloud_topic": "/zed/zed_node/point_cloud/cloud_registered",
 
-            # Filtered output cloud for Nav2 costmap
-            "output_cloud_topic": "/zed/filtered_cloud",
+            # Filtered output cloud for Nav2 costmap and obstacle detection
+            "output_cloud_topic": output_cloud_topic,
 
             # Transform cloud into this frame before filtering
             "target_frame": target_frame,
@@ -85,7 +83,7 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "use_static_tf",
             default_value="true",
-            description="Publish base_link -> sensor static TFs when running this launch standalone.",
+            description="Publish only the base_link -> ZED static TFs when running standalone.",
         ),
         DeclareLaunchArgument(
             "target_frame",
@@ -97,6 +95,7 @@ def generate_launch_description():
             default_value=pkg_share + "/config/zedm_orin_nano_imu_only.yaml",
             description="ZED wrapper YAML override. Default is a low-memory IMU-only profile.",
         ),
+        DeclareLaunchArgument("output_cloud_topic", default_value="/zed/filtered_cloud"),
         DeclareLaunchArgument("filter_min_range", default_value="0.25"),
         DeclareLaunchArgument("filter_max_range", default_value="6.0"),
         DeclareLaunchArgument("filter_min_z", default_value="0.05"),
