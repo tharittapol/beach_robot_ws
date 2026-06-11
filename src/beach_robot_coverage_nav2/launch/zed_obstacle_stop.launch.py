@@ -16,10 +16,18 @@ def generate_launch_description():
     use_static_tf = LaunchConfiguration('use_static_tf')
     zed_params_override = LaunchConfiguration('zed_params_override')
     cloud_topic = LaunchConfiguration('cloud_topic')
+    min_forward_distance = LaunchConfiguration('min_forward_distance')
     stop_distance = LaunchConfiguration('stop_distance')
     cone_half_width = LaunchConfiguration('cone_half_width')
+    min_z = LaunchConfiguration('min_z')
+    max_z = LaunchConfiguration('max_z')
+    min_points = LaunchConfiguration('min_points')
     clear_time_sec = LaunchConfiguration('clear_time_sec')
     fail_safe_on_cloud_timeout = LaunchConfiguration('fail_safe_on_cloud_timeout')
+    filter_min_range = LaunchConfiguration('filter_min_range')
+    filter_max_range = LaunchConfiguration('filter_max_range')
+    filter_min_z = LaunchConfiguration('filter_min_z')
+    filter_max_z = LaunchConfiguration('filter_max_z')
 
     zed_filter_launch = os.path.join(
         zed_filter_pkg, 'launch', 'zedm_nav2_filtered.launch.py')
@@ -39,10 +47,34 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument('zed_params_override', default_value=default_depth_params),
         DeclareLaunchArgument('cloud_topic', default_value='/zed/filtered_cloud'),
+        DeclareLaunchArgument(
+            'min_forward_distance',
+            default_value='0.25',
+            description='Nearest forward X included in the obstacle box (m).',
+        ),
         DeclareLaunchArgument('stop_distance', default_value='2.0'),
-        DeclareLaunchArgument('cone_half_width', default_value='0.8'),
+        DeclareLaunchArgument(
+            'cone_half_width',
+            default_value='0.8',
+            description='Obstacle box half-width; total width is twice this value (m).',
+        ),
+        DeclareLaunchArgument('min_z', default_value='0.12'),
+        DeclareLaunchArgument('max_z', default_value='1.50'),
+        DeclareLaunchArgument('min_points', default_value='5'),
         DeclareLaunchArgument('clear_time_sec', default_value='3.0'),
         DeclareLaunchArgument('fail_safe_on_cloud_timeout', default_value='true'),
+        DeclareLaunchArgument(
+            'filter_min_range',
+            default_value='0.25',
+            description='Upstream cloud filter minimum XY radial range (m).',
+        ),
+        DeclareLaunchArgument(
+            'filter_max_range',
+            default_value='6.0',
+            description='Upstream cloud filter maximum XY radial range (m).',
+        ),
+        DeclareLaunchArgument('filter_min_z', default_value='0.05'),
+        DeclareLaunchArgument('filter_max_z', default_value='1.50'),
 
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(zed_filter_launch),
@@ -50,6 +82,10 @@ def generate_launch_description():
                 'use_static_tf': use_static_tf,
                 'target_frame': 'base_link',
                 'zed_params_override': zed_params_override,
+                'filter_min_range': filter_min_range,
+                'filter_max_range': filter_max_range,
+                'filter_min_z': filter_min_z,
+                'filter_max_z': filter_max_z,
             }.items(),
             condition=IfCondition(launch_zed),
         ),
@@ -61,8 +97,12 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'cloud_topic': cloud_topic,
+                'min_forward_distance': min_forward_distance,
                 'stop_distance': stop_distance,
                 'cone_half_width': cone_half_width,
+                'min_z': min_z,
+                'max_z': max_z,
+                'min_points': min_points,
                 'clear_time_sec': clear_time_sec,
                 'fail_safe_on_cloud_timeout': fail_safe_on_cloud_timeout,
             }],

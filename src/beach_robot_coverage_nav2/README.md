@@ -188,11 +188,32 @@ ros2 topic echo /safety/obstacle_distance
 ros2 topic echo /safety/e_stop
 ```
 
-ปรับระยะหยุดและเวลารอ resume:
+ขอบเขตตรวจจับเป็นกล่องใน frame `base_link`:
+
+- ลึก/ด้านหน้า X: `min_forward_distance` ถึง `stop_distance`
+- กว้าง Y: `-cone_half_width` ถึง `+cone_half_width` (ความกว้างรวม = 2 เท่า)
+- สูง Z: `min_z` ถึง `max_z`
+- ต้องมีอย่างน้อย `min_points` จุดในกล่องจึงถือว่าเป็น obstacle
+
+ตัวอย่างกล่องตรวจจับลึก 0.30-2.00 m, กว้างรวม 1.50 m, สูง 0.15-1.40 m:
 
 ```bash
 ros2 launch beach_robot_coverage_nav2 zed_obstacle_stop.launch.py \
-  stop_distance:=2.0 clear_time_sec:=3.0
+  min_forward_distance:=0.30 stop_distance:=2.0 \
+  cone_half_width:=0.75 min_z:=0.15 max_z:=1.40 \
+  min_points:=8 clear_time_sec:=3.0
+```
+
+`filter_min_range`, `filter_max_range`, `filter_min_z`, `filter_max_z` ใช้ปรับ
+ขอบเขต point cloud ชั้นแรก ค่าชั้น filter ต้องครอบคลุมกล่อง detector เสมอ เช่น
+ถ้าต้องตรวจถึงความสูง 1.80 m ให้เพิ่มทั้ง `max_z:=1.80 filter_max_z:=1.80`
+ค่า `filter_*` จาก launch นี้มีผลเมื่อ `launch_zed:=true` เท่านั้น
+
+เช็กค่าที่ node ใช้งานหลัง launch:
+
+```bash
+ros2 param dump /zed_obstacle_stop
+ros2 param dump /zed_cloud_filter_node
 ```
 
 ### ดู graph

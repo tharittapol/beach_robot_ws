@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Front-cone obstacle detection from the ZED filtered point cloud.
+"""Front-box obstacle detection from the ZED filtered point cloud.
 
 `/zed/filtered_cloud` is already range- and height-filtered (0.25-6.0 m, z 0.05-1.5 m)
 and decimated to ~10 Hz by `zed_nav2_cloud_filter`, and is published in the `base_link`
-frame (x forward, y left, z up). This module looks only at a forward cone in front of the
+frame (x forward, y left, z up). This module looks only at a forward box in front of the
 robot and reports whether something is close enough to stop for.
 
 Two pieces:
@@ -29,16 +29,17 @@ from sensor_msgs_py import point_cloud2
 def evaluate_front_cone(
     cloud: PointCloud2,
     *,
+    min_forward_distance: float,
     stop_distance: float,
     cone_half_width: float,
     min_z: float,
     max_z: float,
     min_points: int,
 ) -> Tuple[bool, Optional[float]]:
-    """Return ``(obstacle_present, nearest_x)`` for the forward cone.
+    """Return ``(obstacle_present, nearest_x)`` for the forward box.
 
     A point counts as an obstacle if it is ahead of the robot
-    (``0 < x <= stop_distance``), inside the lateral half-width
+    (``min_forward_distance <= x <= stop_distance``), inside the lateral half-width
     (``|y| <= cone_half_width``) and within the height band (``min_z <= z <= max_z``).
     ``min_z`` sits above the cloud filter's 0.05 m floor to keep ground points from
     triggering a stop when the robot pitches on soft sand. Obstacle is declared only when
@@ -61,7 +62,7 @@ def evaluate_front_cone(
     xs, ys, zs = arr[:, 0], arr[:, 1], arr[:, 2]
 
     mask = (
-        (xs > 0.0)
+        (xs >= min_forward_distance)
         & (xs <= stop_distance)
         & (np.abs(ys) <= cone_half_width)
         & (zs >= min_z)
@@ -74,7 +75,7 @@ def evaluate_front_cone(
 
 
 class FrontConeMonitor:
-    """Subscribes to the filtered cloud and reports front-cone obstacles to a callback."""
+    """Subscribes to the filtered cloud and reports front-box obstacles to a callback."""
 
     def __init__(
         self,
@@ -82,6 +83,7 @@ class FrontConeMonitor:
         on_update: Callable[[bool, Optional[float]], None],
         *,
         cloud_topic: str = '/zed/filtered_cloud',
+        min_forward_distance: float = 0.25,
         stop_distance: float = 2.0,
         cone_half_width: float = 0.8,
         min_z: float = 0.12,
@@ -90,11 +92,12 @@ class FrontConeMonitor:
     ):
         self._node = node
         self._on_update = on_update
-        self.stop_distance = float(stop_distance)
-        self.cone_half_width = float(cone_half_width)
+        self.min_forward_distance = max(0.0, float(min_forward_distance))
+        self.stop_distance = max(self.min_forward_distance, float(stop_distance))
+        self.cone_half_width = max(0.0, float(cone_half_width))
         self.min_z = float(min_z)
-        self.max_z = float(max_z)
-        self.min_points = int(min_points)
+        self.max_z = max(self.min_z, float(max_z))
+        self.min_points = max(1, int(min_points))
 
         self.present: bool = False
         self.nearest_x: Optional[float] = None
@@ -106,6 +109,7 @@ class FrontConeMonitor:
         try:
             present, nearest_x = evaluate_front_cone(
                 msg,
+                min_forward_distance=self.min_forward_distance,
                 stop_distance=self.stop_distance,
                 cone_half_width=self.cone_half_width,
                 min_z=self.min_z,
@@ -125,6 +129,7 @@ def main(args=None):
     rclpy.init(args=args)
     node = Node('obstacle_detector')
     node.declare_parameter('cloud_topic', '/zed/filtered_cloud')
+    node.declare_parameter('min_forward_distance', 0.25)
     node.declare_parameter('stop_distance', 2.0)
     node.declare_parameter('cone_half_width', 0.8)
     node.declare_parameter('min_z', 0.12)
@@ -140,6 +145,7 @@ def main(args=None):
     FrontConeMonitor(
         node, _log,
         cloud_topic=str(node.get_parameter('cloud_topic').value),
+        min_forward_distance=float(node.get_parameter('min_forward_distance').value),
         stop_distance=float(node.get_parameter('stop_distance').value),
         cone_half_width=float(node.get_parameter('cone_half_width').value),
         min_z=float(node.get_parameter('min_z').value),

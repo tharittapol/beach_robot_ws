@@ -12,6 +12,12 @@ def generate_launch_description():
     use_static_tf = LaunchConfiguration("use_static_tf")
     target_frame = LaunchConfiguration("target_frame")
     zed_params_override = LaunchConfiguration("zed_params_override")
+    filter_min_range = LaunchConfiguration("filter_min_range")
+    filter_max_range = LaunchConfiguration("filter_max_range")
+    filter_min_z = LaunchConfiguration("filter_min_z")
+    filter_max_z = LaunchConfiguration("filter_max_z")
+    filter_decimate_n = LaunchConfiguration("filter_decimate_n")
+    filter_throttle_hz = LaunchConfiguration("filter_throttle_hz")
 
     # ZED wrapper launch file path
     zed_launch = (
@@ -60,18 +66,18 @@ def generate_launch_description():
             "target_frame": target_frame,
 
             # Range gate (XY distance in target_frame)
-            "min_range": 0.25,
-            "max_range": 6.0,
+            "min_range": filter_min_range,
+            "max_range": filter_max_range,
 
             # Height gate (Z in target_frame) to remove floor/sky
-            "min_z": 0.05,
-            "max_z": 1.50,
+            "min_z": filter_min_z,
+            "max_z": filter_max_z,
 
             # Cheap downsample: keep 1 of every N points
-            "decimate_n": 8,
+            "decimate_n": filter_decimate_n,
 
             # Limit publish rate (0 = no throttle)
-            "throttle_hz": 10.0,
+            "throttle_hz": filter_throttle_hz,
         }],
     )
 
@@ -91,6 +97,12 @@ def generate_launch_description():
             default_value=pkg_share + "/config/zedm_orin_nano_imu_only.yaml",
             description="ZED wrapper YAML override. Default is a low-memory IMU-only profile.",
         ),
+        DeclareLaunchArgument("filter_min_range", default_value="0.25"),
+        DeclareLaunchArgument("filter_max_range", default_value="6.0"),
+        DeclareLaunchArgument("filter_min_z", default_value="0.05"),
+        DeclareLaunchArgument("filter_max_z", default_value="1.50"),
+        DeclareLaunchArgument("filter_decimate_n", default_value="8"),
+        DeclareLaunchArgument("filter_throttle_hz", default_value="10.0"),
         static_tf_node,
         zed_node,
         cloud_filter_node,

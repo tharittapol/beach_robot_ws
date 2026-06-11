@@ -18,6 +18,7 @@ class ZedObstacleStopNode(Node):
         super().__init__('zed_obstacle_stop')
 
         self.declare_parameter('cloud_topic', '/zed/filtered_cloud')
+        self.declare_parameter('min_forward_distance', 0.25)
         self.declare_parameter('stop_distance', 2.0)
         self.declare_parameter('cone_half_width', 0.8)
         self.declare_parameter('min_z', 0.12)
@@ -66,6 +67,8 @@ class ZedObstacleStopNode(Node):
             self,
             self._on_scan,
             cloud_topic=cloud_topic,
+            min_forward_distance=float(
+                self.get_parameter('min_forward_distance').value),
             stop_distance=float(self.get_parameter('stop_distance').value),
             cone_half_width=float(self.get_parameter('cone_half_width').value),
             min_z=float(self.get_parameter('min_z').value),
@@ -77,7 +80,11 @@ class ZedObstacleStopNode(Node):
 
         self.get_logger().info(
             f'ZED obstacle stop: cloud={cloud_topic} '
-            f'stop<={float(self.get_parameter("stop_distance").value):.1f}m '
+            f'x={self._monitor.min_forward_distance:.2f}..'
+            f'{self._monitor.stop_distance:.2f}m '
+            f'y=+/-{self._monitor.cone_half_width:.2f}m '
+            f'z={self._monitor.min_z:.2f}..{self._monitor.max_z:.2f}m '
+            f'min_points={self._monitor.min_points} '
             f'clear_for={self.clear_time_sec:.1f}s '
             f'fail_safe_timeout={self.fail_safe_on_cloud_timeout}')
 

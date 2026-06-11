@@ -76,6 +76,7 @@ class CoverageFollowWaypoints(Node):
         # --- auto-mode obstacle stop (ZED front cone) ---
         self.declare_parameter('obstacle_stop.enabled', True)
         self.declare_parameter('obstacle_stop.cloud_topic', '/zed/filtered_cloud')
+        self.declare_parameter('obstacle_stop.min_forward_distance', 0.25)
         self.declare_parameter('obstacle_stop.stop_distance', 2.0)
         self.declare_parameter('obstacle_stop.cone_half_width', 0.8)
         self.declare_parameter('obstacle_stop.min_z', 0.12)
@@ -122,6 +123,8 @@ class CoverageFollowWaypoints(Node):
 
         self.obstacle_enabled = self._as_bool(self.get_parameter('obstacle_stop.enabled').value)
         self.obstacle_cloud_topic = str(self.get_parameter('obstacle_stop.cloud_topic').value)
+        self.obstacle_min_forward_distance = float(
+            self.get_parameter('obstacle_stop.min_forward_distance').value)
         self.obstacle_stop_distance = float(self.get_parameter('obstacle_stop.stop_distance').value)
         self.obstacle_cone_half_width = float(self.get_parameter('obstacle_stop.cone_half_width').value)
         self.obstacle_min_z = float(self.get_parameter('obstacle_stop.min_z').value)
@@ -220,6 +223,7 @@ class CoverageFollowWaypoints(Node):
             self._monitor = FrontConeMonitor(
                 self, self._on_obstacle_update,
                 cloud_topic=self.obstacle_cloud_topic,
+                min_forward_distance=self.obstacle_min_forward_distance,
                 stop_distance=self.obstacle_stop_distance,
                 cone_half_width=self.obstacle_cone_half_width,
                 min_z=self.obstacle_min_z,
@@ -230,8 +234,9 @@ class CoverageFollowWaypoints(Node):
             self.create_timer(1.0 / 20.0, self._override_cmd_cb)
             self.create_timer(self.beep_period_sec, self._beep_cb)
             self.get_logger().info(
-                f'Obstacle-stop enabled: stop<{self.obstacle_stop_distance:.1f}m '
-                f'cone±{self.obstacle_cone_half_width:.1f}m resume after '
+                f'Obstacle-stop enabled: x={self.obstacle_min_forward_distance:.2f}..'
+                f'{self.obstacle_stop_distance:.2f}m '
+                f'y=+/-{self.obstacle_cone_half_width:.2f}m resume after '
                 f'{self.obstacle_clear_time_sec:.0f}s clear')
 
         if self._as_bool(self.get_parameter('autostart').value):
