@@ -51,6 +51,11 @@ def generate_launch_description():
             default_value="false",
             description="Publish every raw ESP32 JSON line. Keep false while driving to avoid debug backpressure."
         ),
+        DeclareLaunchArgument(
+            "esp32_debug_enabled",
+            default_value="false",
+            description="Enable continuous low-level ESP32 debug telemetry. Keep false for normal driving."
+        ),
 
         Node(
             package="beach_robot_esp32_bridge",
@@ -66,6 +71,7 @@ def generate_launch_description():
                 "wheel_cmd_send_rate_hz": LaunchConfiguration("wheel_cmd_send_rate_hz"),
                 "wheel_cmd_stale_timeout_sec": LaunchConfiguration("wheel_cmd_stale_timeout_sec"),
                 "safety_estop_topic": LaunchConfiguration("safety_estop_topic"),
+                "esp32_debug_enabled": LaunchConfiguration("esp32_debug_enabled"),
                 "publish_raw_json": LaunchConfiguration("publish_raw_json"),
             }],
             respawn=True,

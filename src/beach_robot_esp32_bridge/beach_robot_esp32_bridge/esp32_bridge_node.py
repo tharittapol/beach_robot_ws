@@ -27,6 +27,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('wheel_cmd_send_rate_hz', 30.0)
         self.declare_parameter('wheel_cmd_stale_timeout_sec', 0.5)
         self.declare_parameter('safety_estop_topic', '/safety/e_stop')
+        self.declare_parameter('esp32_debug_enabled', False)
         self.declare_parameter('publish_raw_json', False)
 
         # Read parameters and store in self.*
@@ -39,6 +40,7 @@ class ESP32Bridge(Node):
         self.wheel_cmd_send_rate_hz = float(self.get_parameter('wheel_cmd_send_rate_hz').value)
         self.wheel_cmd_stale_timeout_sec = float(self.get_parameter('wheel_cmd_stale_timeout_sec').value)
         self.safety_estop_topic = str(self.get_parameter('safety_estop_topic').value)
+        self.esp32_debug_enabled = bool(self.get_parameter('esp32_debug_enabled').value)
         self.publish_raw_json_enabled = bool(self.get_parameter('publish_raw_json').value)
         self.last_enc_vel = None
         self.last_enc_reject_warn_time = 0.0
@@ -175,6 +177,16 @@ class ESP32Bridge(Node):
                 self.get_logger().info(
                     f'Opened serial port {self.port} at {self.baudrate} baud'
                 )
+                configured = self.write_json_line(
+                    {'dbg_enable': self.esp32_debug_enabled},
+                    'debug mode',
+                    reconnect_on_error=False,
+                )
+                if configured:
+                    self.get_logger().info(
+                        f'ESP32 debug mode default: '
+                        f'{"enabled" if self.esp32_debug_enabled else "disabled"}'
+                    )
                 return
             except serial.SerialException as e:
                 self.get_logger().error(
@@ -194,7 +206,7 @@ class ESP32Bridge(Node):
     # ------------------------------------------------------------------
     # Callbacks to send commands to ESP32
     # ------------------------------------------------------------------
-    def write_json_line(self, data: dict, label: str):
+    def write_json_line(self, data: dict, label: str, reconnect_on_error: bool = True):
         if self.ser is None or not self.ser.is_open:
             self.get_logger().warn(f'Serial not open, cannot send {label}')
             return False
@@ -209,7 +221,8 @@ class ESP32Bridge(Node):
             except serial.SerialException as e:
                 self.get_logger().error(f'Serial write error ({label}): {e}')
                 self.close_serial()
-                self.open_serial_with_retry()
+                if reconnect_on_error:
+                    self.open_serial_with_retry()
                 return False
 
     def wheel_cmd_callback(self, msg: Float32MultiArray):

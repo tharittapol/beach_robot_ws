@@ -44,6 +44,7 @@ def generate_launch_description():
     enc_vel_max_step_mps = LaunchConfiguration('enc_vel_max_step_mps')
     wheel_cmd_send_rate_hz = LaunchConfiguration('wheel_cmd_send_rate_hz')
     wheel_cmd_stale_timeout_sec = LaunchConfiguration('wheel_cmd_stale_timeout_sec')
+    esp32_debug_enabled = LaunchConfiguration('esp32_debug_enabled')
     publish_raw_json = LaunchConfiguration('publish_raw_json')
 
     joy_device = LaunchConfiguration('joy_device')
@@ -114,6 +115,11 @@ def generate_launch_description():
             description='Send zero wheel_cmd if the mixer stops publishing fresh wheel commands.',
         ),
         DeclareLaunchArgument(
+            'esp32_debug_enabled',
+            default_value='false',
+            description='Enable continuous low-level ESP32 debug telemetry. Keep false while driving.',
+        ),
+        DeclareLaunchArgument(
             'publish_raw_json',
             default_value='false',
             description='Publish every raw ESP32 JSON line. Keep false while driving.',
@@ -171,6 +177,7 @@ def generate_launch_description():
                 'enc_vel_max_step_mps': enc_vel_max_step_mps,
                 'wheel_cmd_send_rate_hz': wheel_cmd_send_rate_hz,
                 'wheel_cmd_stale_timeout_sec': wheel_cmd_stale_timeout_sec,
+                'esp32_debug_enabled': esp32_debug_enabled,
                 'publish_raw_json': publish_raw_json,
             },
             condition=IfCondition(use_esp32),

@@ -19,6 +19,7 @@ def generate_launch_description():
     use_teleop = LaunchConfiguration('use_teleop')
     esp32_port = LaunchConfiguration('esp32_port')
     wheel_cmd_send_rate_hz = LaunchConfiguration('wheel_cmd_send_rate_hz')
+    esp32_debug_enabled = LaunchConfiguration('esp32_debug_enabled')
     publish_raw_json = LaunchConfiguration('publish_raw_json')
     linear_scale = LaunchConfiguration('linear_scale')
     angular_scale = LaunchConfiguration('angular_scale')
@@ -112,6 +113,7 @@ def generate_launch_description():
                                           'Nav2 in auto mode, so it does not fight the controller.'),
         DeclareLaunchArgument('esp32_port', default_value='/dev/ttyESP32'),
         DeclareLaunchArgument('wheel_cmd_send_rate_hz', default_value='20.0'),
+        DeclareLaunchArgument('esp32_debug_enabled', default_value='false'),
         DeclareLaunchArgument('publish_raw_json', default_value='false'),
         DeclareLaunchArgument('linear_scale', default_value='1.19'),  # sand 2026-06-10: 10 m odom vs 8.245 m tape (~21% slip)
         DeclareLaunchArgument('angular_scale', default_value='1.0'),
@@ -192,6 +194,7 @@ def generate_launch_description():
             'launch_gnss_driver': launch_gnss_driver,
             'esp32_port': esp32_port,
             'wheel_cmd_send_rate_hz': wheel_cmd_send_rate_hz,
+            'esp32_debug_enabled': esp32_debug_enabled,
             'publish_raw_json': publish_raw_json,
             'linear_scale': linear_scale,
             'angular_scale': angular_scale,
