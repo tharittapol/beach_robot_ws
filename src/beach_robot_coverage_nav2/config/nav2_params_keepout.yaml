@@ -39,11 +39,10 @@ controller_server:
       # --- heading: never spin-in-place, always move+steer simultaneously ---
       use_rotate_to_heading: false
       rotate_to_heading_angular_vel: 0.57
-      # --- lookahead: tuned for 0.30 m turn radius on skid-steer ---
-      # shorter lookahead → tighter curvature response → arc matches joy teleop
-      lookahead_dist: 0.40
-      min_lookahead_dist: 0.20
-      max_lookahead_dist: 0.60
+      # lookahead tuned for R=2.10m arc (sand 2026-06-11): need >= 0.5R = 1.0m
+      lookahead_dist: 1.0
+      min_lookahead_dist: 0.50
+      max_lookahead_dist: 1.5
       use_velocity_scaled_lookahead_dist: false
       # --- regulated scaling: threshold = actual turn radius ---
       # at r=0.30 m: scale=1.0 → v=0.17, ω=0.57 rad/s (same as joystick 45° input)
