@@ -8,6 +8,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
 
+from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped, Quaternion, Twist
 from nav2_msgs.action import FollowWaypoints, NavigateToPose, NavigateThroughPoses
 from nav_msgs.msg import Odometry, Path
@@ -720,6 +721,7 @@ class CoverageFollowWaypoints(Node):
             return
         if not handle.accepted:
             self.get_logger().error('Lane goal rejected by NavigateThroughPoses server.')
+            self._phase = 'idle'
             return
         self._lane_goal_handle = handle
         handle.get_result_async().add_done_callback(
@@ -729,6 +731,8 @@ class CoverageFollowWaypoints(Node):
         if epoch != self._nav_epoch or self._paused:
             return  # stale result from a cancelled goal — do not advance
         self._lane_goal_handle = None
+        if not self._goal_succeeded(future, 'Lane'):
+            return
         self._lane_idx += 1
         if self._lane_idx >= len(self._lane_ys):
             self.get_logger().info('Coverage complete!')
@@ -800,9 +804,9 @@ class CoverageFollowWaypoints(Node):
                 handle.cancel_goal_async()  # superseded before accept — cancel the orphan
             return
         if not handle.accepted:
-            self.get_logger().warn('Turn arc goal rejected — adjusting next lane from actual pose.')
+            self.get_logger().error('Turn arc goal rejected; coverage halted.')
             self._in_turn = False
-            self._after_turn()
+            self._phase = 'idle'
             return
         self._turn_goal_handle = handle
         handle.get_result_async().add_done_callback(
@@ -811,10 +815,13 @@ class CoverageFollowWaypoints(Node):
     def _on_turn_done(self, future, epoch):
         if epoch != self._nav_epoch or self._paused:
             return
-        if not self._turn_triggered:
-            # Normal goal completion — yaw check didn't fire first
-            self._in_turn = False
-            self._after_turn()
+        if self._turn_triggered:
+            return
+        self._in_turn = False
+        if not self._goal_succeeded(future, 'Turn arc'):
+            return
+        # Normal goal completion — yaw check didn't fire first.
+        self._after_turn()
 
     def _after_turn(self):
         """Read actual robot y and use it as the start of the next lane."""
@@ -1028,8 +1035,8 @@ class CoverageFollowWaypoints(Node):
                 handle.cancel_goal_async()
             return
         if not handle.accepted:
-            self.get_logger().warn('Deadhead goal rejected — starting next pass from current pose.')
-            self._after_deadhead()
+            self.get_logger().error('Deadhead goal rejected; coverage halted.')
+            self._phase = 'idle'
             return
         self._turn_goal_handle = handle
         handle.get_result_async().add_done_callback(
@@ -1039,7 +1046,30 @@ class CoverageFollowWaypoints(Node):
         if epoch != self._nav_epoch or self._paused:
             return
         self._turn_goal_handle = None
+        if not self._goal_succeeded(future, 'Deadhead'):
+            return
         self._after_deadhead()
+
+    def _goal_succeeded(self, future, label):
+        """Advance coverage only after Nav2 explicitly reports success."""
+        try:
+            status = future.result().status
+        except Exception as exc:
+            self.get_logger().error(
+                f'{label} result unavailable ({exc}); coverage halted.')
+            self._phase = 'idle'
+            self._in_turn = False
+            return False
+
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            return True
+
+        self.get_logger().error(
+            f'{label} ended with action status={status}; coverage halted instead of '
+            'advancing to the next lane.')
+        self._phase = 'idle'
+        self._in_turn = False
+        return False
 
     def _after_deadhead(self):
         # Start the new pass at the exact planned lane y (keeps the interleave gap-free).
