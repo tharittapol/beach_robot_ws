@@ -68,6 +68,8 @@ class CoverageFollowWaypoints(Node):
         # them as N interleaved passes; in-pass lanes stay lane_spacing apart (arc turns),
         # the offsets fill the gaps. Between passes the robot loops outside the work area.
         self.declare_parameter('num_passes', 1)
+        self.declare_parameter(
+            'coverage_path_mode', 'teardrop')  # teardrop|multipass_boustrophedon
         self.declare_parameter('deadhead_style', 'outside')   # outside|direct
         self.declare_parameter('deadhead_clearance', 0.9)
 
@@ -103,6 +105,12 @@ class CoverageFollowWaypoints(Node):
         self.turn_style = str(self.get_parameter('turn_style').value).lower()
         self.turn_radius = max(0.0, float(self.get_parameter('turn_radius').value))
         self.num_passes = max(1, int(self.get_parameter('num_passes').value))
+        self.coverage_path_mode = str(
+            self.get_parameter('coverage_path_mode').value).lower()
+        if self.coverage_path_mode not in ('teardrop', 'multipass_boustrophedon'):
+            self.get_logger().warn(
+                f'Unknown coverage_path_mode={self.coverage_path_mode!r}; using teardrop.')
+            self.coverage_path_mode = 'teardrop'
         self.deadhead_style = str(self.get_parameter('deadhead_style').value).lower()
         self.deadhead_clearance = max(
             float(self.get_parameter('deadhead_clearance').value), self.turn_radius)
@@ -240,6 +248,7 @@ class CoverageFollowWaypoints(Node):
             f'Coverage planner: pattern={self.pattern} '
             f'area={self.area.width:.2f}×{self.area.height:.2f}m '
             f'passes={self.num_passes} lanes={len(self._lane_ys)} '
+            f'path_mode={self.coverage_path_mode} '
             f'in-pass spacing={self.lane_spacing:.2f}m '
             f'turn_radius={self.turn_radius:.2f}m '
             f'deadhead={self.deadhead_style}'
@@ -527,9 +536,9 @@ class CoverageFollowWaypoints(Node):
                     poses.append(self._pose(mx, my, self.area.yaw + lyaw))
                 forward = not forward
             else:
-                # between-pass deadhead: local teardrop loop on the SAME end → start nearest side
-                new_forward = abs(end_x - self._x0) < abs(end_x - self._x1)
-                start_x = self._x0 if new_forward else self._x1
+                # Between-pass transition: local teardrop on the same end, or a rounded
+                # perimeter route that enters the next pass from the opposite end.
+                start_x, new_forward = self._deadhead_start(end_x)
                 for lx, lya, lyaw in self._deadhead_path((end_x, ly), (start_x, next_y)):
                     mx, my = self._to_map(lx, lya)
                     poses.append(self._pose(mx, my, self.area.yaw + lyaw))
@@ -769,10 +778,12 @@ class CoverageFollowWaypoints(Node):
 
     # ---- between-pass deadhead (multipass coverage) ----
     #
-    # Between two passes the lanes are only tool_width apart, too tight for an in-pass arc,
-    # so the robot repositions by looping OUTSIDE the work rectangle to the next pass's
-    # first lane. Path = perimeter waypoints; RegulatedPurePursuit rounds the corners as
-    # long as the clearance ≥ turn_radius. Uses NavigateThroughPoses (same as arc turns).
+    # Between two passes the lanes are only tool_width apart, too tight for an in-pass arc.
+    # Two selectable paths are available:
+    #   teardrop: local minimum-radius loop on the same end rail
+    #   multipass_boustrophedon: rounded route around the work-area perimeter, entering the
+    #     next pass from the opposite end
+    # Both use NavigateThroughPoses, like the in-pass arc turns.
 
     def _sample_arc(self, c, p0, p1, rho, r, step, out):
         """Append points along the arc on circle (centre c, radius r) from p0 to p1, turning
@@ -819,15 +830,49 @@ class CoverageFollowWaypoints(Node):
             self._sample_arc(c2, t2, (0.0, d_local), sg, r, step, loc)
         return [to_global(*p) for p in loc]
 
+    def _deadhead_start(self, end_x):
+        at_right = abs(end_x - self._x1) < abs(end_x - self._x0)
+        if self.coverage_path_mode == 'multipass_boustrophedon':
+            # Enter the next pass from the opposite end after following the outside perimeter.
+            return (self._x0, True) if at_right else (self._x1, False)
+        # Local teardrop: return to the same end, facing into the next lane.
+        return (self._x1, False) if at_right else (self._x0, True)
+
+    def _perimeter_deadhead(self, a, b):
+        """Forward-only rounded route outside the work rectangle from lane end a to b."""
+        xa, ya = a
+        xb, yb = b
+        clearance = self.deadhead_clearance
+        sa = 1.0 if abs(xa - self._x1) < abs(xa - self._x0) else -1.0
+        sb = 1.0 if abs(xb - self._x1) < abs(xb - self._x0) else -1.0
+        xa_outer = xa + sa * clearance
+        xb_outer = xb + sb * clearance
+
+        lower_y = min(self._y0, ya, yb) - clearance
+        upper_y = max(self._y1, ya, yb) + clearance
+        lower_cost = abs(ya - lower_y) + abs(yb - lower_y)
+        upper_cost = abs(ya - upper_y) + abs(yb - upper_y)
+        outside_y = lower_y if lower_cost <= upper_cost else upper_y
+
+        corners = [
+            a,
+            (xa_outer, ya),
+            (xa_outer, outside_y),
+            (xb_outer, outside_y),
+            (xb_outer, yb),
+            b,
+        ]
+        return self._round_corners(corners, self.turn_radius, self.waypoint_step)
+
     def _deadhead_path(self, a, b):
-        """Lane-end a=(xa,ya) → next-lane-start b=(xb,yb). 'direct' = straight line; 'outside' =
-        a local minimum-radius teardrop loop (every arc ≥ turn_radius). a and b share the end
-        x-rail (same-side deadhead)."""
+        """Lane-end a=(xa,ya) → next-pass start b=(xb,yb)."""
         xa, ya = a
         xb, yb = b
         if self.deadhead_style == 'direct':
             yaw = math.atan2(yb - ya, xb - xa)
             return [(lx, ly, yaw) for lx, ly in self._sample_line(a, b, self.waypoint_step)]
+        if self.coverage_path_mode == 'multipass_boustrophedon':
+            return self._perimeter_deadhead(a, b)
         xe = xa
         s = 1.0 if abs(xe - self._x1) < abs(xe - self._x0) else -1.0   # +1 outward = +x
         return self._teardrop(xe, ya, yb, s, self.turn_radius, self.waypoint_step)
@@ -837,10 +882,7 @@ class CoverageFollowWaypoints(Node):
         end_x = self._x1 if self._forward else self._x0
         a = (end_x, self._current_y)
         next_y = self._lane_ys[self._lane_idx]
-        # Same-side teardrop loop: start the next pass on the side nearest the current end,
-        # so the local Dubins loop stays on this end x-rail (shifts the fine offset, ≥R arcs).
-        new_forward = abs(end_x - self._x0) < abs(end_x - self._x1)
-        start_x = self._x0 if new_forward else self._x1
+        start_x, new_forward = self._deadhead_start(end_x)
         self._deadhead_next_y = next_y
         self._deadhead_new_forward = new_forward
 
@@ -853,7 +895,8 @@ class CoverageFollowWaypoints(Node):
         self.get_logger().info(
             f'Deadhead → pass {self._lane_pass[self._lane_idx] + 1} '
             f'lane {self._lane_idx + 1}/{len(self._lane_ys)}: {len(poses)} poses  '
-            f'({a[0]:.2f},{a[1]:.2f})→({start_x:.2f},{next_y:.2f})  style={self.deadhead_style}')
+            f'({a[0]:.2f},{a[1]:.2f})→({start_x:.2f},{next_y:.2f})  '
+            f'mode={self.coverage_path_mode} style={self.deadhead_style}')
 
         goal = NavigateThroughPoses.Goal()
         goal.poses = poses
