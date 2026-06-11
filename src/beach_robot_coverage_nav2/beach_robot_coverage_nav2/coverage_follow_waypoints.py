@@ -80,12 +80,13 @@ class CoverageFollowWaypoints(Node):
         # --- auto-mode obstacle stop (ZED straight front box) ---
         self.declare_parameter('obstacle_stop.enabled', True)
         self.declare_parameter('obstacle_stop.cloud_topic', '/zed/filtered_cloud')
+        self.declare_parameter('obstacle_stop.camera_forward_offset', 0.71245)
         self.declare_parameter('obstacle_stop.min_forward_distance', 0.25)
         self.declare_parameter('obstacle_stop.stop_distance', 2.0)
         self.declare_parameter('obstacle_stop.box_width', 0.8)
         self.declare_parameter('obstacle_stop.min_z', 0.12)
         self.declare_parameter('obstacle_stop.max_z', 1.5)
-        self.declare_parameter('obstacle_stop.min_points', 5)
+        self.declare_parameter('obstacle_stop.min_points', 1000)
         self.declare_parameter('obstacle_stop.clear_time_sec', 3.0)
         self.declare_parameter('obstacle_stop.beep_period_sec', 1.0)
         self.declare_parameter('obstacle_stop.beep_duration_sec', 0.4)
@@ -143,6 +144,8 @@ class CoverageFollowWaypoints(Node):
 
         self.obstacle_enabled = self._as_bool(self.get_parameter('obstacle_stop.enabled').value)
         self.obstacle_cloud_topic = str(self.get_parameter('obstacle_stop.cloud_topic').value)
+        self.obstacle_camera_forward_offset = max(
+            0.0, float(self.get_parameter('obstacle_stop.camera_forward_offset').value))
         self.obstacle_min_forward_distance = float(
             self.get_parameter('obstacle_stop.min_forward_distance').value)
         self.obstacle_stop_distance = float(self.get_parameter('obstacle_stop.stop_distance').value)
@@ -247,8 +250,14 @@ class CoverageFollowWaypoints(Node):
             self._monitor = FrontBoxMonitor(
                 self, self._on_obstacle_update,
                 cloud_topic=self.obstacle_cloud_topic,
-                min_forward_distance=self.obstacle_min_forward_distance,
-                stop_distance=self.obstacle_stop_distance,
+                min_forward_distance=(
+                    self.obstacle_camera_forward_offset
+                    + self.obstacle_min_forward_distance
+                ),
+                stop_distance=(
+                    self.obstacle_camera_forward_offset
+                    + self.obstacle_stop_distance
+                ),
                 box_width=self.obstacle_box_width,
                 min_z=self.obstacle_min_z,
                 max_z=self.obstacle_max_z,
@@ -258,8 +267,9 @@ class CoverageFollowWaypoints(Node):
             self.create_timer(1.0 / 20.0, self._override_cmd_cb)
             self.create_timer(self.beep_period_sec, self._beep_cb)
             self.get_logger().info(
-                f'Obstacle-stop enabled: x={self.obstacle_min_forward_distance:.2f}..'
+                f'Obstacle-stop enabled: camera_x={self.obstacle_min_forward_distance:.2f}..'
                 f'{self.obstacle_stop_distance:.2f}m '
+                f'camera_offset={self.obstacle_camera_forward_offset:.5f}m '
                 f'box_width={self.obstacle_box_width:.2f}m resume after '
                 f'{self.obstacle_clear_time_sec:.0f}s clear')
 

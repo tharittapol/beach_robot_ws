@@ -121,7 +121,7 @@ class FrontBoxMonitor:
         box_width: float = 0.8,
         min_z: float = 0.12,
         max_z: float = 1.5,
-        min_points: int = 5,
+        min_points: int = 1000,
         expected_frame: str = 'base_link',
         debug_cloud_topic: str = '/safety/obstacle_points',
         debug_marker_topic: str = '/safety/obstacle_markers',
@@ -252,7 +252,7 @@ def main(args=None):
     node.declare_parameter('box_width', 0.8)
     node.declare_parameter('min_z', 0.12)
     node.declare_parameter('max_z', 1.5)
-    node.declare_parameter('min_points', 5)
+    node.declare_parameter('min_points', 1000)
 
     def _log(present: bool, nearest_x: Optional[float]):
         if present:

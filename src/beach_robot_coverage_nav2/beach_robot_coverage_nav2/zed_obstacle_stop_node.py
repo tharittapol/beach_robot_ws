@@ -18,13 +18,14 @@ class ZedObstacleStopNode(Node):
         super().__init__('zed_obstacle_stop')
 
         self.declare_parameter('cloud_topic', '/zed/filtered_cloud')
+        self.declare_parameter('camera_forward_offset', 0.71245)
         self.declare_parameter('min_forward_distance', 0.25)
         self.declare_parameter('stop_distance', 2.0)
         self.declare_parameter('box_width', 0.8)
         self.declare_parameter('cone_half_width', -1.0)
         self.declare_parameter('min_z', 0.12)
         self.declare_parameter('max_z', 1.5)
-        self.declare_parameter('min_points', 5)
+        self.declare_parameter('min_points', 1000)
         self.declare_parameter('clear_time_sec', 3.0)
         self.declare_parameter('cloud_timeout_sec', 1.0)
         self.declare_parameter('fail_safe_on_cloud_timeout', False)
@@ -42,6 +43,8 @@ class ZedObstacleStopNode(Node):
         self.declare_parameter('buzzer_topic', '/buzzer_duration')
 
         cloud_topic = str(self.get_parameter('cloud_topic').value)
+        self.camera_forward_offset = max(
+            0.0, float(self.get_parameter('camera_forward_offset').value))
         self.clear_time_sec = max(0.0, float(self.get_parameter('clear_time_sec').value))
         self.cloud_timeout_sec = max(
             0.0, float(self.get_parameter('cloud_timeout_sec').value))
@@ -81,13 +84,17 @@ class ZedObstacleStopNode(Node):
             self.get_logger().warn(
                 'cone_half_width is deprecated; use box_width (total width) instead.')
 
+        min_forward_distance = max(
+            0.0, float(self.get_parameter('min_forward_distance').value))
+        stop_distance = max(
+            min_forward_distance, float(self.get_parameter('stop_distance').value))
+
         self._monitor = FrontBoxMonitor(
             self,
             self._on_scan,
             cloud_topic=cloud_topic,
-            min_forward_distance=float(
-                self.get_parameter('min_forward_distance').value),
-            stop_distance=float(self.get_parameter('stop_distance').value),
+            min_forward_distance=self.camera_forward_offset + min_forward_distance,
+            stop_distance=self.camera_forward_offset + stop_distance,
             box_width=box_width,
             min_z=float(self.get_parameter('min_z').value),
             max_z=float(self.get_parameter('max_z').value),
@@ -104,8 +111,10 @@ class ZedObstacleStopNode(Node):
         self.get_logger().info(
             f'ZED obstacle stop: cloud={cloud_topic} '
             f'frame={self._monitor.expected_frame} '
-            f'x={self._monitor.min_forward_distance:.2f}..'
+            f'camera_x={min_forward_distance:.2f}..{stop_distance:.2f}m '
+            f'base_link_x={self._monitor.min_forward_distance:.2f}..'
             f'{self._monitor.stop_distance:.2f}m '
+            f'camera_offset={self.camera_forward_offset:.5f}m '
             f'box_width={self._monitor.box_width:.2f}m '
             f'z={self._monitor.min_z:.2f}..{self._monitor.max_z:.2f}m '
             f'min_points={self._monitor.min_points} '
@@ -126,10 +135,14 @@ class ZedObstacleStopNode(Node):
         self._cloud_timed_out = False
         self._timeout_warned = False
         self._raw_obstacle = present
-        self._nearest_x = nearest_x
+        camera_distance = (
+            max(0.0, nearest_x - self.camera_forward_offset)
+            if nearest_x is not None else None
+        )
+        self._nearest_x = camera_distance
         if present:
             self._clear_start = None
-            self._set_stop(True, nearest_x, 'obstacle')
+            self._set_stop(True, camera_distance, 'obstacle')
         elif self._stop_active and self._clear_start is None:
             self._clear_start = self._last_cloud_time
 

@@ -16,6 +16,7 @@ def generate_launch_description():
     use_static_tf = LaunchConfiguration('use_static_tf')
     zed_params_override = LaunchConfiguration('zed_params_override')
     cloud_topic = LaunchConfiguration('cloud_topic')
+    camera_forward_offset = LaunchConfiguration('camera_forward_offset')
     min_forward_distance = LaunchConfiguration('min_forward_distance')
     stop_distance = LaunchConfiguration('stop_distance')
     box_width = LaunchConfiguration('box_width')
@@ -49,11 +50,20 @@ def generate_launch_description():
         DeclareLaunchArgument('zed_params_override', default_value=default_depth_params),
         DeclareLaunchArgument('cloud_topic', default_value='/zed/filtered_cloud'),
         DeclareLaunchArgument(
+            'camera_forward_offset',
+            default_value='0.71245',
+            description='ZED forward position from base_link; used to convert camera distances (m).',
+        ),
+        DeclareLaunchArgument(
             'min_forward_distance',
             default_value='0.25',
-            description='Nearest forward X included in the obstacle box (m).',
+            description='Nearest forward distance from the ZED camera included in the box (m).',
         ),
-        DeclareLaunchArgument('stop_distance', default_value='2.0'),
+        DeclareLaunchArgument(
+            'stop_distance',
+            default_value='2.0',
+            description='Obstacle stop boundary measured forward from the ZED camera (m).',
+        ),
         DeclareLaunchArgument(
             'box_width',
             default_value='0.8',
@@ -66,7 +76,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument('min_z', default_value='0.12'),
         DeclareLaunchArgument('max_z', default_value='1.50'),
-        DeclareLaunchArgument('min_points', default_value='5'),
+        DeclareLaunchArgument('min_points', default_value='1000'),
         DeclareLaunchArgument('clear_time_sec', default_value='3.0'),
         DeclareLaunchArgument(
             'fail_safe_on_cloud_timeout',
@@ -108,6 +118,7 @@ def generate_launch_description():
             output='screen',
             parameters=[{
                 'cloud_topic': cloud_topic,
+                'camera_forward_offset': camera_forward_offset,
                 'min_forward_distance': min_forward_distance,
                 'stop_distance': stop_distance,
                 'box_width': box_width,
