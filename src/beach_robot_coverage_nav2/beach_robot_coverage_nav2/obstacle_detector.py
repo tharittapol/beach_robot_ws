@@ -22,8 +22,16 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from sensor_msgs.msg import PointCloud2
+from sensor_msgs.msg import PointCloud2, PointField
 from sensor_msgs_py import point_cloud2
+
+
+DEBUG_CLOUD_FIELDS = [
+    PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+    PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+    PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+    PointField(name='intensity', offset=12, datatype=PointField.FLOAT32, count=1),
+]
 
 
 def extract_front_box_points(
@@ -153,7 +161,13 @@ class FrontBoxMonitor:
         present = self.point_count >= self.min_points
         nearest_x = float(np.min(points[:, 0])) if present else None
         if self._debug_pub is not None:
-            debug_cloud = point_cloud2.create_cloud_xyz32(msg.header, points.tolist())
+            # A bright intensity field makes the selected points visible with RViz's
+            # default Intensity color transformer, instead of requiring FlatColor.
+            debug_points = [
+                (float(x), float(y), float(z), 4096.0) for x, y, z in points
+            ]
+            debug_cloud = point_cloud2.create_cloud(
+                msg.header, DEBUG_CLOUD_FIELDS, debug_points)
             self._debug_pub.publish(debug_cloud)
 
         self.present = present
