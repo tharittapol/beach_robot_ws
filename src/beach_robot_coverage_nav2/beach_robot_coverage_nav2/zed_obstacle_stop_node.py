@@ -6,13 +6,13 @@ from typing import Optional
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool, Float32, Int32
 
-from .obstacle_detector import FrontConeMonitor
+from .obstacle_detector import FrontBoxMonitor
 
 
 class ZedObstacleStopNode(Node):
-    """Latch a hardware safety stop until the ZED front cone stays clear."""
+    """Latch a hardware safety stop until the ZED front box stays clear."""
 
     def __init__(self):
         super().__init__('zed_obstacle_stop')
@@ -20,7 +20,8 @@ class ZedObstacleStopNode(Node):
         self.declare_parameter('cloud_topic', '/zed/filtered_cloud')
         self.declare_parameter('min_forward_distance', 0.25)
         self.declare_parameter('stop_distance', 2.0)
-        self.declare_parameter('cone_half_width', 0.8)
+        self.declare_parameter('box_width', 1.6)
+        self.declare_parameter('cone_half_width', -1.0)
         self.declare_parameter('min_z', 0.12)
         self.declare_parameter('max_z', 1.5)
         self.declare_parameter('min_points', 5)
@@ -33,6 +34,9 @@ class ZedObstacleStopNode(Node):
         self.declare_parameter('safety_estop_topic', '/safety/e_stop')
         self.declare_parameter('obstacle_state_topic', '/safety/obstacle_stop')
         self.declare_parameter('obstacle_distance_topic', '/safety/obstacle_distance')
+        self.declare_parameter('obstacle_point_count_topic', '/safety/obstacle_point_count')
+        self.declare_parameter('debug_cloud_topic', '/safety/obstacle_points')
+        self.declare_parameter('publish_debug_cloud', True)
         self.declare_parameter('buzzer_topic', '/buzzer_duration')
 
         cloud_topic = str(self.get_parameter('cloud_topic').value)
@@ -60,20 +64,32 @@ class ZedObstacleStopNode(Node):
             Bool, str(self.get_parameter('obstacle_state_topic').value), 10)
         self._distance_pub = self.create_publisher(
             Float32, str(self.get_parameter('obstacle_distance_topic').value), 10)
+        self._point_count_pub = self.create_publisher(
+            Int32, str(self.get_parameter('obstacle_point_count_topic').value), 10)
         self._buzzer_pub = self.create_publisher(
             Float32, str(self.get_parameter('buzzer_topic').value), 10)
 
-        self._monitor = FrontConeMonitor(
+        box_width = max(0.0, float(self.get_parameter('box_width').value))
+        legacy_cone_half_width = float(self.get_parameter('cone_half_width').value)
+        if legacy_cone_half_width >= 0.0:
+            box_width = legacy_cone_half_width * 2.0
+            self.get_logger().warn(
+                'cone_half_width is deprecated; use box_width (total width) instead.')
+
+        self._monitor = FrontBoxMonitor(
             self,
             self._on_scan,
             cloud_topic=cloud_topic,
             min_forward_distance=float(
                 self.get_parameter('min_forward_distance').value),
             stop_distance=float(self.get_parameter('stop_distance').value),
-            cone_half_width=float(self.get_parameter('cone_half_width').value),
+            box_width=box_width,
             min_z=float(self.get_parameter('min_z').value),
             max_z=float(self.get_parameter('max_z').value),
             min_points=int(self.get_parameter('min_points').value),
+            debug_cloud_topic=str(self.get_parameter('debug_cloud_topic').value),
+            publish_debug_cloud=self._as_bool(
+                self.get_parameter('publish_debug_cloud').value),
         )
         self.create_timer(1.0 / state_rate, self._state_timer_cb)
         self.create_timer(self.beep_period_sec, self._beep_timer_cb)
@@ -82,7 +98,7 @@ class ZedObstacleStopNode(Node):
             f'ZED obstacle stop: cloud={cloud_topic} '
             f'x={self._monitor.min_forward_distance:.2f}..'
             f'{self._monitor.stop_distance:.2f}m '
-            f'y=+/-{self._monitor.cone_half_width:.2f}m '
+            f'box_width={self._monitor.box_width:.2f}m '
             f'z={self._monitor.min_z:.2f}..{self._monitor.max_z:.2f}m '
             f'min_points={self._monitor.min_points} '
             f'clear_for={self.clear_time_sec:.1f}s '
@@ -158,6 +174,10 @@ class ZedObstacleStopNode(Node):
         distance_msg.data = (
             float(self._nearest_x) if self._nearest_x is not None else math.nan)
         self._distance_pub.publish(distance_msg)
+
+        point_count_msg = Int32()
+        point_count_msg.data = self._monitor.point_count
+        self._point_count_pub.publish(point_count_msg)
 
     def _beep_timer_cb(self):
         if not self._stop_active or self.beep_duration_sec <= 0.0:

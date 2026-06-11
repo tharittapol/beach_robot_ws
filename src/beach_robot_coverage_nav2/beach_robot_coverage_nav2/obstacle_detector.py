@@ -7,8 +7,8 @@ frame (x forward, y left, z up). This module looks only at a forward box in fron
 robot and reports whether something is close enough to stop for.
 
 Two pieces:
-  * ``evaluate_front_cone(cloud, ...)`` — pure function doing the numpy math.
-  * ``FrontConeMonitor`` — wires a subscription on a given node and calls back on every
+  * ``evaluate_front_box(cloud, ...)`` — pure function doing the numpy math.
+  * ``FrontBoxMonitor`` — wires a subscription on a given node and calls back on every
     cloud with ``(present, nearest_x)``; the coverage node uses this to drive its
     pause/resume state machine.
 
@@ -26,24 +26,24 @@ from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 
 
-def evaluate_front_cone(
+def extract_front_box_points(
     cloud: PointCloud2,
     *,
     min_forward_distance: float,
     stop_distance: float,
-    cone_half_width: float,
+    box_width: float,
     min_z: float,
     max_z: float,
-    min_points: int,
-) -> Tuple[bool, Optional[float]]:
-    """Return ``(obstacle_present, nearest_x)`` for the forward box.
+) -> np.ndarray:
+    """Return XYZ points inside the straight rectangular front box.
 
     A point counts as an obstacle if it is ahead of the robot
     (``min_forward_distance <= x <= stop_distance``), inside the lateral half-width
-    (``|y| <= cone_half_width``) and within the height band (``min_z <= z <= max_z``).
+    (``|y| <= box_width / 2``) and within the height band (``min_z <= z <= max_z``).
+    The Y limit is constant at every X distance, so this is a straight rectangular box,
+    not an angle-based cone.
     ``min_z`` sits above the cloud filter's 0.05 m floor to keep ground points from
-    triggering a stop when the robot pitches on soft sand. Obstacle is declared only when
-    at least ``min_points`` such points are present (noise rejection).
+    triggering a stop when the robot pitches on soft sand.
     """
     try:
         arr = point_cloud2.read_points_numpy(
@@ -57,24 +57,47 @@ def evaluate_front_cone(
         )
 
     if arr.size == 0:
-        return False, None
+        return np.empty((0, 3), dtype=np.float32)
     arr = np.asarray(arr, dtype=np.float32).reshape(-1, 3)
     xs, ys, zs = arr[:, 0], arr[:, 1], arr[:, 2]
+    box_half_width = max(0.0, float(box_width)) / 2.0
 
     mask = (
         (xs >= min_forward_distance)
         & (xs <= stop_distance)
-        & (np.abs(ys) <= cone_half_width)
+        & (np.abs(ys) <= box_half_width)
         & (zs >= min_z)
         & (zs <= max_z)
     )
-    count = int(np.count_nonzero(mask))
+    return arr[mask]
+
+
+def evaluate_front_box(
+    cloud: PointCloud2,
+    *,
+    min_forward_distance: float,
+    stop_distance: float,
+    box_width: float,
+    min_z: float,
+    max_z: float,
+    min_points: int,
+) -> Tuple[bool, Optional[float]]:
+    """Return ``(obstacle_present, nearest_x)`` for the forward box."""
+    points = extract_front_box_points(
+        cloud,
+        min_forward_distance=min_forward_distance,
+        stop_distance=stop_distance,
+        box_width=box_width,
+        min_z=min_z,
+        max_z=max_z,
+    )
+    count = len(points)
     if count >= min_points:
-        return True, float(np.min(xs[mask]))
+        return True, float(np.min(points[:, 0]))
     return False, None
 
 
-class FrontConeMonitor:
+class FrontBoxMonitor:
     """Subscribes to the filtered cloud and reports front-box obstacles to a callback."""
 
     def __init__(
@@ -85,53 +108,67 @@ class FrontConeMonitor:
         cloud_topic: str = '/zed/filtered_cloud',
         min_forward_distance: float = 0.25,
         stop_distance: float = 2.0,
-        cone_half_width: float = 0.8,
+        box_width: float = 1.6,
         min_z: float = 0.12,
         max_z: float = 1.5,
         min_points: int = 5,
+        debug_cloud_topic: str = '/safety/obstacle_points',
+        publish_debug_cloud: bool = True,
     ):
         self._node = node
         self._on_update = on_update
         self.min_forward_distance = max(0.0, float(min_forward_distance))
         self.stop_distance = max(self.min_forward_distance, float(stop_distance))
-        self.cone_half_width = max(0.0, float(cone_half_width))
+        self.box_width = max(0.0, float(box_width))
         self.min_z = float(min_z)
         self.max_z = max(self.min_z, float(max_z))
         self.min_points = max(1, int(min_points))
 
         self.present: bool = False
         self.nearest_x: Optional[float] = None
+        self.point_count: int = 0
+        self._debug_pub = (
+            node.create_publisher(PointCloud2, debug_cloud_topic, qos_profile_sensor_data)
+            if publish_debug_cloud else None
+        )
 
         self._sub = node.create_subscription(
             PointCloud2, cloud_topic, self._cloud_cb, qos_profile_sensor_data)
 
     def _cloud_cb(self, msg: PointCloud2):
         try:
-            present, nearest_x = evaluate_front_cone(
+            points = extract_front_box_points(
                 msg,
                 min_forward_distance=self.min_forward_distance,
                 stop_distance=self.stop_distance,
-                cone_half_width=self.cone_half_width,
+                box_width=self.box_width,
                 min_z=self.min_z,
                 max_z=self.max_z,
-                min_points=self.min_points,
             )
         except Exception as exc:  # never let a malformed cloud kill the node
             self._node.get_logger().warn(f'Obstacle scan failed: {exc}')
             return
+
+        self.point_count = len(points)
+        present = self.point_count >= self.min_points
+        nearest_x = float(np.min(points[:, 0])) if present else None
+        if self._debug_pub is not None:
+            debug_cloud = point_cloud2.create_cloud_xyz32(msg.header, points.tolist())
+            self._debug_pub.publish(debug_cloud)
+
         self.present = present
         self.nearest_x = nearest_x
         self._on_update(present, nearest_x)
 
 
 def main(args=None):
-    """Standalone diagnostic: log front-cone obstacle state from the live cloud."""
+    """Standalone diagnostic: log front-box obstacle state from the live cloud."""
     rclpy.init(args=args)
     node = Node('obstacle_detector')
     node.declare_parameter('cloud_topic', '/zed/filtered_cloud')
     node.declare_parameter('min_forward_distance', 0.25)
     node.declare_parameter('stop_distance', 2.0)
-    node.declare_parameter('cone_half_width', 0.8)
+    node.declare_parameter('box_width', 1.6)
     node.declare_parameter('min_z', 0.12)
     node.declare_parameter('max_z', 1.5)
     node.declare_parameter('min_points', 5)
@@ -142,12 +179,12 @@ def main(args=None):
         else:
             node.get_logger().info('clear')
 
-    FrontConeMonitor(
+    FrontBoxMonitor(
         node, _log,
         cloud_topic=str(node.get_parameter('cloud_topic').value),
         min_forward_distance=float(node.get_parameter('min_forward_distance').value),
         stop_distance=float(node.get_parameter('stop_distance').value),
-        cone_half_width=float(node.get_parameter('cone_half_width').value),
+        box_width=float(node.get_parameter('box_width').value),
         min_z=float(node.get_parameter('min_z').value),
         max_z=float(node.get_parameter('max_z').value),
         min_points=int(node.get_parameter('min_points').value),

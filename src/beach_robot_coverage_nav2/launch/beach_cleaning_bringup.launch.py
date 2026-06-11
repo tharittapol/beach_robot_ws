@@ -44,7 +44,7 @@ def generate_launch_description():
     # Obstacle distances are still forwarded to the coverage node's (disabled) internal
     # stop block for reference; the live detector runs SEPARATELY (zed_obstacle_stop.launch.py).
     obstacle_stop_distance = LaunchConfiguration('obstacle_stop_distance')
-    obstacle_cone_half_width = LaunchConfiguration('obstacle_cone_half_width')
+    obstacle_box_width = LaunchConfiguration('obstacle_box_width')
     obstacle_clear_time_sec = LaunchConfiguration('obstacle_clear_time_sec')
     num_passes = LaunchConfiguration('num_passes')
     coverage_path_mode = LaunchConfiguration('coverage_path_mode')
@@ -160,7 +160,7 @@ def generate_launch_description():
         # This bringup already opens the ZED camera (use_zed) and the ESP32 bridge already
         # ORs the manual /e_stop (joystick) with the detector's /safety/e_stop.
         DeclareLaunchArgument('obstacle_stop_distance', default_value='2.0'),
-        DeclareLaunchArgument('obstacle_cone_half_width', default_value='0.8'),
+        DeclareLaunchArgument('obstacle_box_width', default_value='1.6'),
         DeclareLaunchArgument('obstacle_clear_time_sec', default_value='3.0'),
     ]
 
@@ -288,12 +288,12 @@ def generate_launch_description():
             'deadhead_style': deadhead_style,
             'deadhead_clearance': deadhead_clearance,
 
-            # --- auto-mode obstacle stop (ZED front cone) ---
+            # --- auto-mode obstacle stop (ZED straight front box) ---
             # Disabled here: the SEPARATE zed_obstacle_stop node owns the hardware E-stop and
             # buzzer for every Nav2 phase (via /safety/e_stop → ESP32 bridge).
             'obstacle_stop.enabled': False,
             'obstacle_stop.stop_distance': obstacle_stop_distance,
-            'obstacle_stop.cone_half_width': obstacle_cone_half_width,
+            'obstacle_stop.box_width': obstacle_box_width,
             'obstacle_stop.clear_time_sec': obstacle_clear_time_sec,
 
             # --- run ---

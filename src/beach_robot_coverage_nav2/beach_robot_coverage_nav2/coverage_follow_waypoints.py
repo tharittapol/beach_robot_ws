@@ -14,7 +14,7 @@ from nav_msgs.msg import Odometry, Path
 from std_msgs.msg import Float32
 from rclpy.qos import DurabilityPolicy, QoSProfile
 
-from .obstacle_detector import FrontConeMonitor
+from .obstacle_detector import FrontBoxMonitor
 
 
 def quaternion_from_yaw(yaw: float):
@@ -73,12 +73,12 @@ class CoverageFollowWaypoints(Node):
         self.declare_parameter('deadhead_style', 'outside')   # outside|direct
         self.declare_parameter('deadhead_clearance', 0.9)
 
-        # --- auto-mode obstacle stop (ZED front cone) ---
+        # --- auto-mode obstacle stop (ZED straight front box) ---
         self.declare_parameter('obstacle_stop.enabled', True)
         self.declare_parameter('obstacle_stop.cloud_topic', '/zed/filtered_cloud')
         self.declare_parameter('obstacle_stop.min_forward_distance', 0.25)
         self.declare_parameter('obstacle_stop.stop_distance', 2.0)
-        self.declare_parameter('obstacle_stop.cone_half_width', 0.8)
+        self.declare_parameter('obstacle_stop.box_width', 1.6)
         self.declare_parameter('obstacle_stop.min_z', 0.12)
         self.declare_parameter('obstacle_stop.max_z', 1.5)
         self.declare_parameter('obstacle_stop.min_points', 5)
@@ -126,7 +126,7 @@ class CoverageFollowWaypoints(Node):
         self.obstacle_min_forward_distance = float(
             self.get_parameter('obstacle_stop.min_forward_distance').value)
         self.obstacle_stop_distance = float(self.get_parameter('obstacle_stop.stop_distance').value)
-        self.obstacle_cone_half_width = float(self.get_parameter('obstacle_stop.cone_half_width').value)
+        self.obstacle_box_width = float(self.get_parameter('obstacle_stop.box_width').value)
         self.obstacle_min_z = float(self.get_parameter('obstacle_stop.min_z').value)
         self.obstacle_max_z = float(self.get_parameter('obstacle_stop.max_z').value)
         self.obstacle_min_points = int(self.get_parameter('obstacle_stop.min_points').value)
@@ -216,16 +216,16 @@ class CoverageFollowWaypoints(Node):
         self._obstacle_present = False
         self._clear_start = None
 
-        # Obstacle-stop IO (cmd_vel override + buzzer + ZED front-cone monitor)
+        # Obstacle-stop IO (cmd_vel override + buzzer + ZED straight front-box monitor)
         self._cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, 10)
         self._buzzer_pub = self.create_publisher(Float32, self.buzzer_topic, 10)
         if self.obstacle_enabled:
-            self._monitor = FrontConeMonitor(
+            self._monitor = FrontBoxMonitor(
                 self, self._on_obstacle_update,
                 cloud_topic=self.obstacle_cloud_topic,
                 min_forward_distance=self.obstacle_min_forward_distance,
                 stop_distance=self.obstacle_stop_distance,
-                cone_half_width=self.obstacle_cone_half_width,
+                box_width=self.obstacle_box_width,
                 min_z=self.obstacle_min_z,
                 max_z=self.obstacle_max_z,
                 min_points=self.obstacle_min_points,
@@ -236,7 +236,7 @@ class CoverageFollowWaypoints(Node):
             self.get_logger().info(
                 f'Obstacle-stop enabled: x={self.obstacle_min_forward_distance:.2f}..'
                 f'{self.obstacle_stop_distance:.2f}m '
-                f'y=+/-{self.obstacle_cone_half_width:.2f}m resume after '
+                f'box_width={self.obstacle_box_width:.2f}m resume after '
                 f'{self.obstacle_clear_time_sec:.0f}s clear')
 
         if self._as_bool(self.get_parameter('autostart').value):
@@ -940,7 +940,7 @@ class CoverageFollowWaypoints(Node):
 
     # ---- auto-mode obstacle stop ----
     #
-    # The ZED front-cone monitor calls _on_obstacle_update on every cloud (~10 Hz).
+    # The ZED front-box monitor calls _on_obstacle_update on every cloud (~10 Hz).
     # We only pause during a LANE (not a turn): turns are short, and mid-arc the robot
     # is bulged out to the side so there is no clean "remaining arc" to resume — if an
     # obstacle persists through the turn, the pause engages the instant the next lane

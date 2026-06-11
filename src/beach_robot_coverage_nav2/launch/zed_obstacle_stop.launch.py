@@ -18,6 +18,7 @@ def generate_launch_description():
     cloud_topic = LaunchConfiguration('cloud_topic')
     min_forward_distance = LaunchConfiguration('min_forward_distance')
     stop_distance = LaunchConfiguration('stop_distance')
+    box_width = LaunchConfiguration('box_width')
     cone_half_width = LaunchConfiguration('cone_half_width')
     min_z = LaunchConfiguration('min_z')
     max_z = LaunchConfiguration('max_z')
@@ -54,9 +55,14 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument('stop_distance', default_value='2.0'),
         DeclareLaunchArgument(
+            'box_width',
+            default_value='1.6',
+            description='Constant total width of the straight obstacle box (m).',
+        ),
+        DeclareLaunchArgument(
             'cone_half_width',
-            default_value='0.8',
-            description='Obstacle box half-width; total width is twice this value (m).',
+            default_value='-1.0',
+            description='Deprecated compatibility argument; non-negative values override box_width.',
         ),
         DeclareLaunchArgument('min_z', default_value='0.12'),
         DeclareLaunchArgument('max_z', default_value='1.50'),
@@ -103,6 +109,7 @@ def generate_launch_description():
                 'cloud_topic': cloud_topic,
                 'min_forward_distance': min_forward_distance,
                 'stop_distance': stop_distance,
+                'box_width': box_width,
                 'cone_half_width': cone_half_width,
                 'min_z': min_z,
                 'max_z': max_z,

@@ -186,22 +186,26 @@ ros2 launch beach_robot_coverage_nav2 zed_obstacle_stop.launch.py launch_zed:=fa
 ```bash
 ros2 topic echo /safety/obstacle_stop
 ros2 topic echo /safety/obstacle_distance
+ros2 topic echo /safety/obstacle_point_count
 ros2 topic echo /safety/e_stop
 ```
+
+สำหรับตรวจ false positive ให้เพิ่ม PointCloud2 `/safety/obstacle_points` ใน RViz2
+topic นี้แสดงเฉพาะจุดที่ detector นับว่าอยู่ภายในกล่องตรวจจับ
 
 ขอบเขตตรวจจับเป็นกล่องใน frame `base_link`:
 
 - ลึก/ด้านหน้า X: `min_forward_distance` ถึง `stop_distance`
-- กว้าง Y: `-cone_half_width` ถึง `+cone_half_width` (ความกว้างรวม = 2 เท่า)
+- กว้าง Y: `box_width` เป็นความกว้างรวมคงที่ตลอดแนว X จึงเป็นกล่องตรง ไม่บานออกแบบ cone
 - สูง Z: `min_z` ถึง `max_z`
 - ต้องมีอย่างน้อย `min_points` จุดในกล่องจึงถือว่าเป็น obstacle
 
 ตัวอย่างกล่องตรวจจับลึก 0.30-2.00 m, กว้างรวม 1.50 m, สูง 0.15-1.40 m:
 
 ```bash
-ros2 launch beach_robot_coverage_nav2 zed_obstacle_stop.launch.py \
+  ros2 launch beach_robot_coverage_nav2 zed_obstacle_stop.launch.py \
   min_forward_distance:=0.30 stop_distance:=2.0 \
-  cone_half_width:=0.75 min_z:=0.15 max_z:=1.40 \
+  box_width:=1.50 min_z:=0.15 max_z:=1.40 \
   min_points:=8 clear_time_sec:=3.0
 ```
 
