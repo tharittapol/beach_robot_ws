@@ -3,8 +3,8 @@
 
 // ===== pins (ESP32 MAIN) =====
 // Front-Left
-#define PWM_FL 32
-#define DIR_FL 33
+#define PWM_FL 2
+#define DIR_FL 15
 // Front-Right
 #define PWM_FR 25
 #define DIR_FR 26
