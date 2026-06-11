@@ -42,6 +42,11 @@ def generate_launch_description():
             description="Send zero wheel_cmd when no fresh /wheel_cmd has arrived within this time."
         ),
         DeclareLaunchArgument(
+            "safety_estop_topic",
+            default_value="/safety/e_stop",
+            description="Independent safety E-stop topic ORed with the manual /e_stop topic."
+        ),
+        DeclareLaunchArgument(
             "publish_raw_json",
             default_value="false",
             description="Publish every raw ESP32 JSON line. Keep false while driving to avoid debug backpressure."
@@ -60,6 +65,7 @@ def generate_launch_description():
                 "enc_vel_max_step_mps": LaunchConfiguration("enc_vel_max_step_mps"),
                 "wheel_cmd_send_rate_hz": LaunchConfiguration("wheel_cmd_send_rate_hz"),
                 "wheel_cmd_stale_timeout_sec": LaunchConfiguration("wheel_cmd_stale_timeout_sec"),
+                "safety_estop_topic": LaunchConfiguration("safety_estop_topic"),
                 "publish_raw_json": LaunchConfiguration("publish_raw_json"),
             }],
             respawn=True,

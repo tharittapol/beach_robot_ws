@@ -24,6 +24,7 @@ setup(
             'coverage_follow_waypoints = beach_robot_coverage_nav2.coverage_follow_waypoints:main',
             'generate_keepout_mask = beach_robot_coverage_nav2.generate_keepout_mask:main',
             'obstacle_detector = beach_robot_coverage_nav2.obstacle_detector:main',
+            'zed_obstacle_stop = beach_robot_coverage_nav2.zed_obstacle_stop_node:main',
         ],
     },
 )

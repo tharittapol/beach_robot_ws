@@ -146,6 +146,55 @@ Add displays:
 ```bash
 ros2 topic echo /cmd_vel
 ```
+
+## ZED obstacle safety stop
+
+เมื่อ point cloud ตรวจพบวัตถุด้านหน้าภายใน 2.0 m ระบบจะ:
+
+- publish `/safety/e_stop=true` ให้ ESP32 bridge บังคับล้อหยุด
+- ร้อง buzzer เป็นระยะ
+- คง Nav2 goal เดิมไว้
+- เมื่อทางโล่งต่อเนื่องเกิน 3 วินาที publish `/safety/e_stop=false` แล้ว Nav2 วิ่งต่อ
+
+Coverage bringup เปิด **กล้อง ZED + สาย E-stop** (bridge OR `/e_stop` จอย กับ `/safety/e_stop`)
+ให้พร้อม แต่ **ไม่ได้ spawn ตัว detector เอง** — รัน node ตรวจจับแยก (persistent เหมือน GNSS):
+
+```bash
+# เทอร์มินอล 1: bringup (เปิดกล้อง ZED ให้แล้ว)
+ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py
+# เทอร์มินอล 2: detector แยก — กล้องเปิดจาก bringup แล้ว จึง launch_zed:=false
+ros2 launch beach_robot_coverage_nav2 zed_obstacle_stop.launch.py launch_zed:=false
+```
+
+ทดสอบกล้อง + safety node แบบ standalone (detector launch เปิดกล้องเองในตัว):
+
+```bash
+ros2 launch beach_robot_coverage_nav2 zed_obstacle_stop.launch.py
+```
+
+สำหรับหยุดล้อจริง ต้องมี `beach_robot_esp32_bridge` รันอยู่ด้วย
+
+ถ้า ZED camera และ `/zed/filtered_cloud` รันอยู่แล้ว:
+
+```bash
+ros2 launch beach_robot_coverage_nav2 zed_obstacle_stop.launch.py launch_zed:=false
+```
+
+ดูสถานะ:
+
+```bash
+ros2 topic echo /safety/obstacle_stop
+ros2 topic echo /safety/obstacle_distance
+ros2 topic echo /safety/e_stop
+```
+
+ปรับระยะหยุดและเวลารอ resume:
+
+```bash
+ros2 launch beach_robot_coverage_nav2 zed_obstacle_stop.launch.py \
+  stop_distance:=2.0 clear_time_sec:=3.0
+```
+
 ### ดู graph
 ```bash
 rqt_graph

@@ -21,6 +21,7 @@
   <exec_depend>nav2_bringup</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>nav2_costmap_2d</exec_depend>
+  <exec_depend>zed_nav2_cloud_filter</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

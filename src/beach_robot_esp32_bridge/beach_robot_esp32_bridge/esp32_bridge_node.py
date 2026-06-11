@@ -26,6 +26,7 @@ class ESP32Bridge(Node):
         self.declare_parameter('enc_vel_max_step_mps', 1.0)
         self.declare_parameter('wheel_cmd_send_rate_hz', 30.0)
         self.declare_parameter('wheel_cmd_stale_timeout_sec', 0.5)
+        self.declare_parameter('safety_estop_topic', '/safety/e_stop')
         self.declare_parameter('publish_raw_json', False)
 
         # Read parameters and store in self.*
@@ -37,6 +38,7 @@ class ESP32Bridge(Node):
         self.enc_vel_max_step_mps = float(self.get_parameter('enc_vel_max_step_mps').value)
         self.wheel_cmd_send_rate_hz = float(self.get_parameter('wheel_cmd_send_rate_hz').value)
         self.wheel_cmd_stale_timeout_sec = float(self.get_parameter('wheel_cmd_stale_timeout_sec').value)
+        self.safety_estop_topic = str(self.get_parameter('safety_estop_topic').value)
         self.publish_raw_json_enabled = bool(self.get_parameter('publish_raw_json').value)
         self.last_enc_vel = None
         self.last_enc_reject_warn_time = 0.0
@@ -45,7 +47,9 @@ class ESP32Bridge(Node):
         self.wheel_cmd_seq = 0
         self.wheel_cmd_period = 1.0 / max(self.wheel_cmd_send_rate_hz, 1.0)
         self.last_wheel_cmd_write_time = 0.0
-        self.estop_active = False   # /e_stop (teleop Y) → force-zero motor output regardless of source
+        self.manual_estop_active = False
+        self.safety_estop_active = False
+        self.estop_active = False
 
         # Ultrasonic params
         self.declare_parameter('ultra_min_m', 0.02)
@@ -122,13 +126,18 @@ class ESP32Bridge(Node):
             self.json_cmd_callback,
             10
         )
-        # Hardware-level E-STOP: while /e_stop is true, the timer forces zero wheel_cmd to the
-        # ESP32 regardless of what Nav2 / teleop / the mixer publish. This is what actually stops
-        # the robot in AUTO (coverage) mode — nothing else consumes /e_stop.
+        # Hardware-level E-STOP: manual /e_stop and /safety/e_stop are ORed. While either is
+        # true, the timer forces zero wheel_cmd regardless of Nav2 / teleop / mixer output.
         self.sub_estop = self.create_subscription(
             Bool,
             'e_stop',
             self.estop_callback,
+            10
+        )
+        self.sub_safety_estop = self.create_subscription(
+            Bool,
+            self.safety_estop_topic,
+            self.safety_estop_callback,
             10
         )
 
@@ -209,10 +218,27 @@ class ESP32Bridge(Node):
         self.latest_wheel_cmd_time = time.monotonic()
 
     def estop_callback(self, msg: Bool):
-        if bool(msg.data) != self.estop_active:
-            self.get_logger().warn(f'E-STOP {"ENGAGED" if msg.data else "released"} → '
-                                   f'{"forcing zero motor output" if msg.data else "resuming"}')
-        self.estop_active = bool(msg.data)
+        self.manual_estop_active = bool(msg.data)
+        self._update_estop_state()
+
+    def safety_estop_callback(self, msg: Bool):
+        self.safety_estop_active = bool(msg.data)
+        self._update_estop_state()
+
+    def _update_estop_state(self):
+        active = self.manual_estop_active or self.safety_estop_active
+        if active != self.estop_active:
+            sources = []
+            if self.manual_estop_active:
+                sources.append('manual')
+            if self.safety_estop_active:
+                sources.append('safety')
+            source_text = '+'.join(sources) if sources else 'none'
+            self.get_logger().warn(
+                f'E-STOP {"ENGAGED" if active else "released"} '
+                f'(source={source_text}) → '
+                f'{"forcing zero motor output" if active else "resuming"}')
+        self.estop_active = active
 
     def send_latest_wheel_cmd(self):
         now = time.monotonic()

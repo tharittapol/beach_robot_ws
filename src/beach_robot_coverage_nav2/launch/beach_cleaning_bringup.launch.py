@@ -13,6 +13,7 @@ def generate_launch_description():
     keepout_mask_yaml = LaunchConfiguration('keepout_mask_yaml')
     use_robot_stack = LaunchConfiguration('use_robot_stack')
     use_zed = LaunchConfiguration('use_zed')
+    zed_params_override = LaunchConfiguration('zed_params_override')
     use_gnss = LaunchConfiguration('use_gnss')
     launch_gnss_driver = LaunchConfiguration('launch_gnss_driver')
     use_teleop = LaunchConfiguration('use_teleop')
@@ -40,11 +41,13 @@ def generate_launch_description():
     waypoint_step = LaunchConfiguration('waypoint_step')
     turn_style = LaunchConfiguration('turn_style')
     turn_radius = LaunchConfiguration('turn_radius')
-    obstacle_stop_enabled = LaunchConfiguration('obstacle_stop_enabled')
+    # Obstacle distances are still forwarded to the coverage node's (disabled) internal
+    # stop block for reference; the live detector runs SEPARATELY (zed_obstacle_stop.launch.py).
     obstacle_stop_distance = LaunchConfiguration('obstacle_stop_distance')
     obstacle_cone_half_width = LaunchConfiguration('obstacle_cone_half_width')
     obstacle_clear_time_sec = LaunchConfiguration('obstacle_clear_time_sec')
     num_passes = LaunchConfiguration('num_passes')
+    coverage_path_mode = LaunchConfiguration('coverage_path_mode')
     deadhead_style = LaunchConfiguration('deadhead_style')
     deadhead_clearance = LaunchConfiguration('deadhead_clearance')
     use_keepout = LaunchConfiguration('use_keepout')
@@ -55,6 +58,11 @@ def generate_launch_description():
     default_keepout_params = os.path.join(pkg, 'config', 'nav2_params_keepout.yaml')
     default_nokeepout_params = os.path.join(pkg, 'config', 'nav2_params_nokeepout.yaml')
     default_keepout_mask_yaml = os.path.join(pkg, 'config', 'keepout_mask.yaml')
+    default_zed_depth_params = os.path.join(
+        get_package_share_directory('zed_nav2_cloud_filter'),
+        'config',
+        'zedm_orin_nano_depth.yaml',
+    )
 
     # Nav2 params: explicit nav2_params override wins; otherwise pick by use_keepout.
     nav2_params = PythonExpression([
@@ -82,6 +90,11 @@ def generate_launch_description():
             description='Launch ESP32, mixer, sensors, and EKF so Nav2 has odom->base_link TF.',
         ),
         DeclareLaunchArgument('use_zed', default_value='true'),
+        DeclareLaunchArgument(
+            'zed_params_override',
+            default_value=default_zed_depth_params,
+            description='ZED depth profile used when use_zed=true. Must publish point cloud for obstacle stop.',
+        ),
         DeclareLaunchArgument('use_gnss', default_value='false'),
         DeclareLaunchArgument('launch_gnss_driver', default_value='true',
                               description='false → GNSS runs as a SEPARATE persistent node '
@@ -104,7 +117,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument('start_coverage', default_value='true'),
         DeclareLaunchArgument('start_delay_sec', default_value='15.0'),
-        DeclareLaunchArgument('enable_turn_yaw_cut', default_value='true',
+        DeclareLaunchArgument('enable_turn_yaw_cut', default_value='false',
                               description='false → follow the full arc/teardrop path to its end '
                                           '(no early yaw cut). Cleaner when turn_radius matches the '
                                           'robot; avoids the cancel+resend race that skips a lane.'),
@@ -116,24 +129,36 @@ def generate_launch_description():
         DeclareLaunchArgument('area_yaw', default_value='0.0'),
         DeclareLaunchArgument('tool_width', default_value='0.60'),
         DeclareLaunchArgument('overlap', default_value='0.0'),
-        # in-pass spacing = 2×turn_radius (keeps arc turns feasible). Sand: 3.6 = 2×1.8.
-        # LOCK together with turn_radius; vary num_passes for coverage density (P=6→100%).
-        DeclareLaunchArgument('lane_spacing', default_value='3.60'),
+        # Field coverage geometry:
+        # - Measured robot command /cmd_vel v=0.30, w=0.30 gives an actual turn radius ≈2.0 m.
+        # - Plan a slightly easier 2.10 m arc, so in-pass lane_spacing = 2×R = 4.20 m.
+        # - tool_width=0.60 and num_passes=7 gives fine spacing 4.20/7 = 0.60 m → 100% coverage.
+        # Keep lane_spacing, turn_radius, num_passes, and deadhead_clearance locked together.
+        DeclareLaunchArgument('lane_spacing', default_value='4.20'),
         DeclareLaunchArgument('auto_widen_lanes_for_turn', default_value='false'),
         DeclareLaunchArgument('boundary_margin', default_value='0.0'),  # 0 → first lane starts at area origin = robot spawn (drives straight immediately)
-        DeclareLaunchArgument('waypoint_step', default_value='1.0'),
+        DeclareLaunchArgument('waypoint_step', default_value='0.50'),
         DeclareLaunchArgument('turn_style', default_value='arc'),
-        DeclareLaunchArgument('turn_radius', default_value='1.80'),  # sand clean turn radius; keep = lane_spacing/2
+        DeclareLaunchArgument('turn_radius', default_value='2.10'),  # keep = lane_spacing/2
         # --- multipass coverage (interleaved passes for 100% coverage) ---
         DeclareLaunchArgument(
-            'num_passes', default_value='6',
-            description='Coverage-density knob (offset by lane_spacing/num_passes). Sand: 6 → '
-                        '0.6 m fine lanes = 100%; coverage ≈ num_passes/6. Keep lane_spacing/'
-                        'turn_radius fixed when changing this.'),
+            'num_passes', default_value='7',
+            description='Coverage-density knob (offset by lane_spacing/num_passes). Field default: '
+                        '4.20m/7 = 0.60m fine lanes for 100% coverage with a 0.60m tool. '
+                        'Keep lane_spacing/turn_radius fixed when changing this.'),
+        DeclareLaunchArgument(
+            'coverage_path_mode', default_value='teardrop',
+            description='teardrop: local same-side loop between S passes. '
+                        'multipass_boustrophedon: rounded outside-perimeter deadhead into '
+                        'the next S pass from the opposite end.'),
         DeclareLaunchArgument('deadhead_style', default_value='outside'),  # outside|direct
-        DeclareLaunchArgument('deadhead_clearance', default_value='1.8'),  # ≥ turn_radius for outside loops
-        # --- auto-mode obstacle stop (ZED front cone) ---
-        DeclareLaunchArgument('obstacle_stop_enabled', default_value='true'),
+        DeclareLaunchArgument('deadhead_clearance', default_value='2.10'),  # ≥ turn_radius for outside loops
+        # --- obstacle-stop tuning (reference only here) ---
+        # The live ZED obstacle detector is NOT spawned by this bringup. Launch it separately
+        # (persistent, like the GNSS node):
+        #   ros2 launch beach_robot_coverage_nav2 zed_obstacle_stop.launch.py launch_zed:=false
+        # This bringup already opens the ZED camera (use_zed) and the ESP32 bridge already
+        # ORs the manual /e_stop (joystick) with the detector's /safety/e_stop.
         DeclareLaunchArgument('obstacle_stop_distance', default_value='2.0'),
         DeclareLaunchArgument('obstacle_cone_half_width', default_value='0.8'),
         DeclareLaunchArgument('obstacle_clear_time_sec', default_value='3.0'),
@@ -145,6 +170,7 @@ def generate_launch_description():
             'use_sim_time': use_sim_time,
             'use_teleop': use_teleop,
             'use_zed': use_zed,
+            'zed_params_override': zed_params_override,
             'use_gnss': use_gnss,
             'launch_gnss_driver': launch_gnss_driver,
             'esp32_port': esp32_port,
@@ -258,11 +284,14 @@ def generate_launch_description():
 
             # --- multipass (interleaved passes for 100% coverage) ---
             'num_passes': num_passes,
+            'coverage_path_mode': coverage_path_mode,
             'deadhead_style': deadhead_style,
             'deadhead_clearance': deadhead_clearance,
 
             # --- auto-mode obstacle stop (ZED front cone) ---
-            'obstacle_stop.enabled': obstacle_stop_enabled,
+            # Disabled here: the SEPARATE zed_obstacle_stop node owns the hardware E-stop and
+            # buzzer for every Nav2 phase (via /safety/e_stop → ESP32 bridge).
+            'obstacle_stop.enabled': False,
             'obstacle_stop.stop_distance': obstacle_stop_distance,
             'obstacle_stop.cone_half_width': obstacle_cone_half_width,
             'obstacle_stop.clear_time_sec': obstacle_clear_time_sec,

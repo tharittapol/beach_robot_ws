@@ -31,6 +31,7 @@ def generate_launch_description():
     use_teleop = LaunchConfiguration('use_teleop')
     use_mixer = LaunchConfiguration('use_mixer')
     use_zed = LaunchConfiguration('use_zed')
+    zed_params_override = LaunchConfiguration('zed_params_override')
     use_gnss = LaunchConfiguration('use_gnss')
     launch_gnss_driver = LaunchConfiguration('launch_gnss_driver')
     gnss_gga_send_period = LaunchConfiguration('gnss_gga_send_period')
@@ -65,6 +66,15 @@ def generate_launch_description():
         DeclareLaunchArgument('use_teleop', default_value='true'),
         DeclareLaunchArgument('use_mixer', default_value='true'),
         DeclareLaunchArgument('use_zed', default_value='true'),
+        DeclareLaunchArgument(
+            'zed_params_override',
+            default_value=os.path.join(
+                get_package_share_directory('zed_nav2_cloud_filter'),
+                'config',
+                'zedm_orin_nano_imu_only.yaml',
+            ),
+            description='ZED wrapper profile. Use a depth profile when obstacle detection is needed.',
+        ),
         DeclareLaunchArgument(
             'use_gnss',
             default_value='true',
@@ -198,6 +208,7 @@ def generate_launch_description():
                 # localization_imu_compare publishes the static sensor TFs.
                 'use_static_tf': 'false',
                 'target_frame': 'base_link',
+                'zed_params_override': zed_params_override,
             },
             condition=IfCondition(use_zed),
         ),
