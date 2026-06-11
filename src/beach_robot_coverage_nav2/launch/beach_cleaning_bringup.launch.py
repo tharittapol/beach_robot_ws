@@ -24,6 +24,9 @@ def generate_launch_description():
     angular_scale = LaunchConfiguration('angular_scale')
     mixer_params_file = LaunchConfiguration('mixer_params_file')
     publish_map_to_odom_tf = LaunchConfiguration('publish_map_to_odom_tf')
+    spawn_x = LaunchConfiguration('spawn_x')
+    spawn_y = LaunchConfiguration('spawn_y')
+    spawn_yaw = LaunchConfiguration('spawn_yaw')
     start_coverage = LaunchConfiguration('start_coverage')
     start_delay_sec = LaunchConfiguration('start_delay_sec')
     enable_turn_yaw_cut = LaunchConfiguration('enable_turn_yaw_cut')
@@ -36,11 +39,13 @@ def generate_launch_description():
     tool_width = LaunchConfiguration('tool_width')
     overlap = LaunchConfiguration('overlap')
     lane_spacing = LaunchConfiguration('lane_spacing')
+    lane_center_offset = LaunchConfiguration('lane_center_offset')
     auto_widen_lanes_for_turn = LaunchConfiguration('auto_widen_lanes_for_turn')
     boundary_margin = LaunchConfiguration('boundary_margin')
     waypoint_step = LaunchConfiguration('waypoint_step')
     turn_style = LaunchConfiguration('turn_style')
     turn_radius = LaunchConfiguration('turn_radius')
+    minimum_turn_radius = LaunchConfiguration('minimum_turn_radius')
     # Obstacle distances are still forwarded to the coverage node's (disabled) internal
     # stop block for reference; the live detector runs SEPARATELY (zed_obstacle_stop.launch.py).
     obstacle_stop_distance = LaunchConfiguration('obstacle_stop_distance')
@@ -48,6 +53,7 @@ def generate_launch_description():
     obstacle_clear_time_sec = LaunchConfiguration('obstacle_clear_time_sec')
     num_passes = LaunchConfiguration('num_passes')
     coverage_path_mode = LaunchConfiguration('coverage_path_mode')
+    upper_return_count = LaunchConfiguration('upper_return_count')
     deadhead_style = LaunchConfiguration('deadhead_style')
     deadhead_clearance = LaunchConfiguration('deadhead_clearance')
     use_keepout = LaunchConfiguration('use_keepout')
@@ -113,7 +119,22 @@ def generate_launch_description():
         DeclareLaunchArgument(
             'publish_map_to_odom_tf',
             default_value='true',
-            description='Publish identity map->odom for local coverage maps. Disable if a global localization source publishes map->odom.',
+            description='Publish map->odom using the requested spawn pose. Disable if a global localization source publishes map->odom.',
+        ),
+        DeclareLaunchArgument(
+            'spawn_x',
+            default_value='0.0',
+            description='Initial robot X in map when odometry starts at zero.',
+        ),
+        DeclareLaunchArgument(
+            'spawn_y',
+            default_value='0.3',
+            description='Initial robot Y in map; default matches the first coverage lane.',
+        ),
+        DeclareLaunchArgument(
+            'spawn_yaw',
+            default_value='0.0',
+            description='Initial robot yaw in map; default points straight along +X.',
         ),
         DeclareLaunchArgument('start_coverage', default_value='true'),
         DeclareLaunchArgument('start_delay_sec', default_value='15.0'),
@@ -124,33 +145,29 @@ def generate_launch_description():
         DeclareLaunchArgument('coverage_pattern', default_value='boustrophedon'),
         DeclareLaunchArgument('area_origin_x', default_value='0.0'),
         DeclareLaunchArgument('area_origin_y', default_value='0.0'),
-        DeclareLaunchArgument('area_width', default_value='10.0'),   # sand: long lane axis
-        DeclareLaunchArgument('area_height', default_value='5.0'),    # sand: lanes stacked across
+        DeclareLaunchArgument('area_width', default_value='5.0'),
+        DeclareLaunchArgument('area_height', default_value='3.6'),
         DeclareLaunchArgument('area_yaw', default_value='0.0'),
         DeclareLaunchArgument('tool_width', default_value='0.60'),
         DeclareLaunchArgument('overlap', default_value='0.0'),
-        # Field coverage geometry:
-        # - Measured robot command /cmd_vel v=0.30, w=0.30 gives an actual turn radius ≈2.0 m.
-        # - Plan a slightly easier 2.10 m arc, so in-pass lane_spacing = 2×R = 4.20 m.
-        # - tool_width=0.60 and num_passes=7 gives fine spacing 4.20/7 = 0.60 m → 100% coverage.
-        # Keep lane_spacing, turn_radius, num_passes, and deadhead_clearance locked together.
-        DeclareLaunchArgument('lane_spacing', default_value='4.20'),
+        # Six 5 m lanes at y=0.3,0.9,...,3.3. Every lane runs x=0→5.
+        DeclareLaunchArgument('lane_spacing', default_value='0.60'),
+        DeclareLaunchArgument('lane_center_offset', default_value='0.30'),
         DeclareLaunchArgument('auto_widen_lanes_for_turn', default_value='false'),
-        DeclareLaunchArgument('boundary_margin', default_value='0.0'),  # 0 → first lane starts at area origin = robot spawn (drives straight immediately)
+        DeclareLaunchArgument('boundary_margin', default_value='0.0'),  # First lane runs x=0→5; spawn_y places the robot on its y=0.3 centerline.
         DeclareLaunchArgument('waypoint_step', default_value='0.50'),
         DeclareLaunchArgument('turn_style', default_value='arc'),
-        DeclareLaunchArgument('turn_radius', default_value='2.10'),  # keep = lane_spacing/2
-        # --- multipass coverage (interleaved passes for 100% coverage) ---
+        DeclareLaunchArgument('turn_radius', default_value='2.10'),
+        DeclareLaunchArgument('minimum_turn_radius', default_value='2.10'),
         DeclareLaunchArgument(
-            'num_passes', default_value='7',
-            description='Coverage-density knob (offset by lane_spacing/num_passes). Field default: '
-                        '4.20m/7 = 0.60m fine lanes for 100% coverage with a 0.60m tool. '
-                        'Keep lane_spacing/turn_radius fixed when changing this.'),
+            'num_passes', default_value='1',
+            description='Use one pass: six physical lanes spaced by the 0.60 m tool width.'),
         DeclareLaunchArgument(
-            'coverage_path_mode', default_value='teardrop',
-            description='teardrop: local same-side loop between S passes. '
-                        'multipass_boustrophedon: rounded outside-perimeter deadhead into '
-                        'the next S pass from the opposite end.'),
+            'coverage_path_mode', default_value='same_direction_loops',
+            description='Every lane runs x=0 to x=5; exact-radius loops return to x=0.'),
+        DeclareLaunchArgument(
+            'upper_return_count', default_value='3',
+            description='Number of first lane transitions that loop above the area.'),
         DeclareLaunchArgument('deadhead_style', default_value='outside'),  # outside|direct
         DeclareLaunchArgument('deadhead_clearance', default_value='2.10'),  # ≥ turn_radius for outside loops
         # --- obstacle-stop tuning (reference only here) ---
@@ -188,7 +205,18 @@ def generate_launch_description():
         executable='static_transform_publisher',
         name='static_map_to_odom',
         output='screen',
-        arguments=['0', '0', '0', '0', '0', '0', 'map', 'odom'],
+        # The local EKF starts odom->base_link at zero. Offset map->odom so the robot
+        # starts exactly on the first lane and can drive straight immediately.
+        arguments=[
+            '--x', spawn_x,
+            '--y', spawn_y,
+            '--z', '0',
+            '--yaw', spawn_yaw,
+            '--pitch', '0',
+            '--roll', '0',
+            '--frame-id', 'map',
+            '--child-frame-id', 'odom',
+        ],
         condition=IfCondition(publish_map_to_odom_tf),
     )
 
@@ -273,6 +301,7 @@ def generate_launch_description():
             'tool_width': tool_width,
             'overlap': overlap,
             'lane_spacing': lane_spacing,
+            'lane_center_offset': lane_center_offset,
             'auto_widen_lanes_for_turn': auto_widen_lanes_for_turn,
             'boundary_margin': boundary_margin,
             'waypoint_step': waypoint_step,
@@ -280,11 +309,13 @@ def generate_launch_description():
             # --- turn ---
             'turn_style': turn_style,
             'turn_radius': turn_radius,
+            'minimum_turn_radius': minimum_turn_radius,
             'enable_turn_yaw_cut': enable_turn_yaw_cut,
 
             # --- multipass (interleaved passes for 100% coverage) ---
             'num_passes': num_passes,
             'coverage_path_mode': coverage_path_mode,
+            'upper_return_count': upper_return_count,
             'deadhead_style': deadhead_style,
             'deadhead_clearance': deadhead_clearance,
 

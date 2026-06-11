@@ -1,6 +1,7 @@
 # beach_robot_coverage_nav2
 แพ็กเกจนี้ทำระบบ “ทำความสะอาดแบบครอบคลุมพื้นที่” (coverage) สำหรับหุ่นวิ่งบนชายหาด โดยใช้:
-- Boustrophedon coverage (วิ่งไป-กลับเป็นแถว)
+- Same-direction coverage: ทุกแถววิ่งจาก `x=0` ไป `x=5`
+- Return loop นอกพื้นที่ด้วยรัศมีเลี้ยวไม่น้อยกว่า `2.1 m`
 - Spiral coverage (ก้นหอยจากวงนอกเข้าวงใน)
 - ใช้ Nav2 เป็นตัว “นำทางไปตาม waypoint” และทำ obstacle avoidance
 - ใช้ Keepout / Boundary mask บังคับให้หุ่นไม่ออกนอกเขต (mapless ในความหมายว่าไม่ต้อง SLAM map)
@@ -17,11 +18,17 @@
 1) beach_cleaning_bringup.launch.py
     - รันครบ: keepout mask server + costmap filter info server + nav2 + coverage planner
 
-## Flow
-- Start: มุมล่างซ้าย
-- พื้นที่สี่เหลี่ยมผืนผ้าแนวตั้ง
-- หุ่นหันหน้า: ขนานด้านยาว
-- Coverage: วิ่งเป็นแถวตามด้านยาว และ “ขยับแถว” ไปทางด้านกว้าง ⇒ เลี้ยวเฉพาะหัวแถว/ท้ายแถว (เลี้ยวน้อย)
+## Flow เริ่มต้น
+- พื้นที่ `5.0 x 3.6 m`
+- แถวอยู่ที่ `y = 0.3, 0.9, 1.5, 2.1, 2.7, 3.3`
+- ทุกแถวเริ่ม `(x=0, y=lane)` และจบ `(x=5, y=lane)`
+- ค่า spawn เริ่มต้นคือ `(x=0.0, y=0.3, yaw=0.0)` ตรงกับต้นแถวแรก
+- หลังแถว 1–3 วนกลับด้านบน
+- หลังแถว 4–5 วนกลับด้านล่าง
+- เส้นตรงหลักของทุก return loop ขนานกับแนว lane
+- แต่ละ loop คำนวณระดับ Y ใกล้พื้นที่ที่สุดแยกกัน
+- ทุกส่วนโค้งใช้รัศมีอย่างน้อย `2.1 m`
+- หลังแถว 6 จบงานที่ `(5.0, 3.3)`
 
 ## กำหนดพิกัดพื้นที่แบบ “มุมล่างซ้ายเป็น origin”
 กำหนด origin_x/origin_y ให้เป็นมุมล่างซ้ายใน map
@@ -36,26 +43,23 @@
     - area.origin_x = x
     - area.origin_y = y
 
-## ค่า Coverage
-เครื่องตักกว้าง 0.60 m
-
-ค่าเริ่มต้นใช้ lane spacing = 0.60 m ตามความกว้างเครื่องตัก:
-- spacing = 0.60 m
-- lane count ~ 10/0.60 ≈ 17 lanes
-- แถวละ 30 m ที่ 0.5 m/s → ~60s/แถว
-
-พารามิเตอร์แนะนำ
-- area.width = 30.0 (แนววิ่งขนานชายหาด / ด้านยาว)
-- area.height = 10.0 (แนวขยับแถว / ด้านกว้าง)
+## ค่า Coverage เริ่มต้น
+- area.width = 5.0
+- area.height = 3.6
 - tool_width = 0.60
-- overlap = 0.0 หรือกำหนด lane_spacing = 0.60 โดยตรง
-- pattern = boustrophedon หรือ spiral
-- boundary_margin = 0.30 (เท่ากับ tool_width/2)
-- waypoint_step = 1.0
+- lane_spacing = 0.60
+- lane_center_offset = 0.30
+- coverage_path_mode = same_direction_loops
+- upper_return_count = 3
+- boundary_margin = 0.0 เพื่อให้แนววิ่งเริ่มที่ x=0 และจบ x=5
+- waypoint_step = 0.50
 - turn_style = arc
-- turn_radius = 0.30 ถ้าต้องการ lane spacing 0.60 m
-- ถ้าหุ่นเลี้ยวแคบไม่ไหว ให้เพิ่ม lane_spacing เอง หรือใช้ auto_widen_lanes_for_turn=true
-- กรณี forward-only U-turn ต้องใช้ lane_spacing >= 2*turn_radius เช่น turn_radius=0.8 → lane_spacing≈1.6 m
+- turn_radius = 2.10
+- minimum_turn_radius = 2.10
+- num_passes = 1
+
+return loop ออกนอกพื้นที่ จึงต้องใช้ `use_keepout:=false` หรือทำ keepout mask
+ให้ครอบคลุมพื้นที่วนกลับด้วย
 
 เรื่อง “หุ่นหันหน้าขนานด้านยาวตอนเริ่ม”
 planner จะสร้างแถวแรกให้ yaw = แนวแกน X ของสี่เหลี่ยม
@@ -103,13 +107,21 @@ ros2 run tf2_ros tf2_echo map base_link
 ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py
 ```
 
-เลือก pattern ได้:
+รันเส้นทางค่าเริ่มต้น:
 ```bash
 ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
-  coverage_pattern:=boustrophedon \
-  lane_spacing:=0.60 \
-  turn_radius:=0.30
+  use_keepout:=false
 ```
+
+bringup จะตั้ง static `map->odom` ให้หุ่นเริ่มที่ `(0.0, 0.3)` หันหน้า `+X`
+ตรงกับ waypoint แรก จึงเริ่มงานด้วยการเดินตรงทันที ตรวจตำแหน่งก่อนเริ่มได้ด้วย:
+
+```bash
+ros2 run tf2_ros tf2_echo map base_link
+```
+
+หากใช้ GNSS/global localization ที่ publish `map->odom` เอง ให้ตั้ง
+`publish_map_to_odom_tf:=false` และนำหุ่นไปวางที่ต้นแถวแรกจริงแทน
 
 หรือก้นหอยวงนอกเข้าวงใน:
 ```bash
@@ -119,18 +131,17 @@ ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
   turn_radius:=0.30
 ```
 
-ถ้าหุ่นเลี้ยวแคบไม่ไหว:
+ปรับมุมพื้นที่ให้ตรงกับแนววิ่งจริง:
 ```bash
 ros2 launch beach_robot_coverage_nav2 beach_cleaning_bringup.launch.py \
-  coverage_pattern:=boustrophedon \
-  turn_radius:=0.80 \
-  auto_widen_lanes_for_turn:=true
+  use_keepout:=false \
+  area_origin_x:=0.0 area_origin_y:=0.0 area_yaw:=0.0
 ```
 
 ## ปรับพารามิเตอร์ใน launch
 ไปแก้ใน launch/beach_cleaning_bringup.launch.py ที่ node coverage_follow_waypoints ให้มี:
-- area.width: 30.0
-- area.height: 10.0
+- area.width: 5.0
+- area.height: 3.6
 - origin_x/origin_y: มุมล่างซ้ายใน map (ให้อ่าน x,y จาก tf2_echo แล้วใส่)
 - area.yaw: ทำให้วิ่งขนานชายหาด
 

@@ -26,8 +26,8 @@ def quaternion_from_yaw(yaw: float):
 class RectArea:
     origin_x: float = 0.0
     origin_y: float = 0.0
-    width: float = 20.0
-    height: float = 15.0
+    width: float = 5.0
+    height: float = 3.6
     yaw: float = 0.0
 
 
@@ -37,19 +37,21 @@ class CoverageFollowWaypoints(Node):
 
         self.declare_parameter('area.origin_x', 0.0)
         self.declare_parameter('area.origin_y', 0.0)
-        self.declare_parameter('area.width', 20.0)
-        self.declare_parameter('area.height', 15.0)
+        self.declare_parameter('area.width', 5.0)
+        self.declare_parameter('area.height', 3.6)
         self.declare_parameter('area.yaw', 0.0)
 
         self.declare_parameter('pattern', 'boustrophedon')  # boustrophedon|spiral
         self.declare_parameter('tool_width', 0.60)
         self.declare_parameter('overlap', 0.0)
-        self.declare_parameter('lane_spacing', 0.0)  # <=0: tool_width*(1-overlap)
+        self.declare_parameter('lane_spacing', 0.60)
+        self.declare_parameter('lane_center_offset', 0.30)
         self.declare_parameter('auto_widen_lanes_for_turn', False)
         self.declare_parameter('boundary_margin', 0.0)   # 0 → first lane at area origin = robot spawn pose
-        self.declare_parameter('waypoint_step', 1.0)
+        self.declare_parameter('waypoint_step', 0.50)
         self.declare_parameter('turn_style', 'arc')  # arc|corner
-        self.declare_parameter('turn_radius', 0.30)
+        self.declare_parameter('turn_radius', 2.10)
+        self.declare_parameter('minimum_turn_radius', 2.10)
 
         self.declare_parameter('action_name', 'follow_waypoints')
         self.declare_parameter('frame_id', 'map')
@@ -69,7 +71,8 @@ class CoverageFollowWaypoints(Node):
         # the offsets fill the gaps. Between passes the robot loops outside the work area.
         self.declare_parameter('num_passes', 1)
         self.declare_parameter(
-            'coverage_path_mode', 'teardrop')  # teardrop|multipass_boustrophedon
+            'coverage_path_mode', 'same_direction_loops')
+        self.declare_parameter('upper_return_count', 3)
         self.declare_parameter('deadhead_style', 'outside')   # outside|direct
         self.declare_parameter('deadhead_clearance', 0.9)
 
@@ -100,18 +103,34 @@ class CoverageFollowWaypoints(Node):
         self.tool_width = max(0.01, float(self.get_parameter('tool_width').value))
         self.overlap = min(0.90, max(0.0, float(self.get_parameter('overlap').value)))
         self.lane_spacing_param = float(self.get_parameter('lane_spacing').value)
+        self.lane_center_offset = max(
+            0.0, float(self.get_parameter('lane_center_offset').value))
         self.auto_widen_lanes = self._as_bool(self.get_parameter('auto_widen_lanes_for_turn').value)
         self.margin = max(0.0, float(self.get_parameter('boundary_margin').value))
         self.waypoint_step = max(0.10, float(self.get_parameter('waypoint_step').value))
         self.turn_style = str(self.get_parameter('turn_style').value).lower()
         self.turn_radius = max(0.0, float(self.get_parameter('turn_radius').value))
+        self.minimum_turn_radius = max(
+            2.10, float(self.get_parameter('minimum_turn_radius').value))
         self.num_passes = max(1, int(self.get_parameter('num_passes').value))
         self.coverage_path_mode = str(
             self.get_parameter('coverage_path_mode').value).lower()
-        if self.coverage_path_mode not in ('teardrop', 'multipass_boustrophedon'):
+        if self.coverage_path_mode not in (
+                'same_direction_loops', 'teardrop', 'multipass_boustrophedon'):
             self.get_logger().warn(
-                f'Unknown coverage_path_mode={self.coverage_path_mode!r}; using teardrop.')
-            self.coverage_path_mode = 'teardrop'
+                f'Unknown coverage_path_mode={self.coverage_path_mode!r}; '
+                'using same_direction_loops.')
+            self.coverage_path_mode = 'same_direction_loops'
+        if (
+            self.coverage_path_mode == 'same_direction_loops'
+            and self.turn_radius < self.minimum_turn_radius
+        ):
+            self.get_logger().warn(
+                f'Increasing turn_radius {self.turn_radius:.2f}→'
+                f'{self.minimum_turn_radius:.2f}m for comfortable return loops.')
+            self.turn_radius = self.minimum_turn_radius
+        self.upper_return_count = max(
+            0, int(self.get_parameter('upper_return_count').value))
         self.deadhead_style = str(self.get_parameter('deadhead_style').value).lower()
         self.deadhead_clearance = max(
             float(self.get_parameter('deadhead_clearance').value), self.turn_radius)
@@ -139,8 +158,12 @@ class CoverageFollowWaypoints(Node):
         # Pre-compute geometry (used by both preview and nav)
         self._x0 = self.margin
         self._x1 = max(self.margin, self.area.width - self.margin)
-        self._y0 = self.margin
-        self._y1 = max(self.margin, self.area.height - self.margin)
+        if self.coverage_path_mode == 'same_direction_loops':
+            self._y0 = self.lane_center_offset
+            self._y1 = max(self._y0, self.area.height - self.lane_center_offset)
+        else:
+            self._y0 = self.margin
+            self._y1 = max(self.margin, self.area.height - self.margin)
         # _lane_ys is the lane y's in execution order; _lane_pass[i] is which pass lane i
         # belongs to (a change in _lane_pass between consecutive lanes ⇒ a between-pass
         # deadhead instead of an in-pass arc turn).
@@ -210,7 +233,7 @@ class CoverageFollowWaypoints(Node):
         # Obstacle-stop state.
         # _nav_epoch tags every goal we send; a result whose epoch != current is stale
         # (its goal was cancelled for an obstacle) and must not advance the state machine.
-        self._phase = 'idle'            # 'idle' | 'lane' | 'turn'
+        self._phase = 'idle'            # 'idle' | 'lane' | 'turn' | 'deadhead'
         self._nav_epoch = 0
         self._paused = False
         self._obstacle_present = False
@@ -299,6 +322,8 @@ class CoverageFollowWaypoints(Node):
         spacing = max(0.05, spacing)
         min_arc = 2.0 * self.turn_radius
         if self.turn_style == 'arc' and self.turn_radius > 0.0:
+            if self.coverage_path_mode == 'same_direction_loops':
+                return spacing
             if self.auto_widen_lanes and spacing < min_arc:
                 self.get_logger().warn(
                     f'Widening lane_spacing {spacing:.2f}→{min_arc:.2f}m (2×turn_radius).')
@@ -501,11 +526,32 @@ class CoverageFollowWaypoints(Node):
 
     def generate_coverage_poses(self) -> List[PoseStamped]:
         if self.pattern in ('boustrophedon', 'lawnmower', 'zigzag'):
+            if self.coverage_path_mode == 'same_direction_loops':
+                return self._same_direction_preview(self._lane_ys)
             return self._boustrophedon_preview(self._lane_ys)
         if self.pattern in ('spiral', 'inward_spiral', 'outer_to_inner'):
             return self.generate_spiral_poses()
         self.get_logger().warn(f'Unknown pattern={self.pattern!r}; using boustrophedon.')
         return self._boustrophedon_preview(self._lane_ys)
+
+    def _same_direction_preview(self, lane_ys: List[float]) -> List[PoseStamped]:
+        """All lanes run +X; return loops enter every next lane at x=0 heading +X."""
+        poses: List[PoseStamped] = []
+        for lane_idx, lane_y in enumerate(lane_ys):
+            for lx, ly in self._sample_line(
+                    (self._x0, lane_y), (self._x1, lane_y), self.waypoint_step):
+                mx, my = self._to_map(lx, ly)
+                poses.append(self._pose(mx, my, self.area.yaw))
+
+            if lane_idx >= len(lane_ys) - 1:
+                break
+
+            loop = self._same_direction_return_loop(
+                lane_y, lane_ys[lane_idx + 1], lane_idx)
+            for lx, ly, lyaw in loop:
+                mx, my = self._to_map(lx, ly)
+                poses.append(self._pose(mx, my, self.area.yaw + lyaw))
+        return poses
 
     def _boustrophedon_preview(self, lane_ys: List[float]) -> List[PoseStamped]:
         """Full route preview: lanes + in-pass arc turns + between-pass deadhead loops.
@@ -560,7 +606,8 @@ class CoverageFollowWaypoints(Node):
         path.poses = poses
         self.path_pub.publish(path)
         self.path_pub_viz.publish(path)
-        self.get_logger().info(f'Preview path published ({len(poses)} poses, S-shape with arcs)')
+        self.get_logger().info(
+            f'Preview path published ({len(poses)} poses, mode={self.coverage_path_mode})')
 
     def _republish_viz(self):
         if self._preview_poses is not None:
@@ -607,7 +654,9 @@ class CoverageFollowWaypoints(Node):
         self._lane_idx = 0
         self._forward = True
         self._current_y = self._lane_ys[0]
-        self.get_logger().info(f'Starting boustrophedon: {len(self._lane_ys)} lanes')
+        self.get_logger().info(
+            f'Starting coverage: {len(self._lane_ys)} lanes, '
+            f'mode={self.coverage_path_mode}')
         self._run_lane()
 
     def _start_static(self):
@@ -684,6 +733,9 @@ class CoverageFollowWaypoints(Node):
         if self._lane_idx >= len(self._lane_ys):
             self.get_logger().info('Coverage complete!')
             self._phase = 'idle'
+            return
+        if self.coverage_path_mode == 'same_direction_loops':
+            self._run_deadhead()
             return
         # Same pass → in-pass arc S-turn; new pass → loop outside to the next pass.
         if self._lane_pass[self._lane_idx] == self._lane_pass[self._lane_idx - 1]:
@@ -804,12 +856,70 @@ class CoverageFollowWaypoints(Node):
             ang = a0 + sweep * (k / n)
             out.append((c[0] + r * math.cos(ang), c[1] + r * math.sin(ang), ang + tang))
 
+    def _same_direction_return_loop(self, ya, yb, transition_idx):
+        """Closest same-side return whose main straight is parallel to the lanes.
+
+        Transitions after the first ``upper_return_count`` lanes loop above the work
+        rectangle; the remaining transitions loop below it. Four exact-radius quarter arcs
+        connect short vertical straights to one horizontal return straight. The outside Y
+        rail is computed independently for every transition, so it stays as close as the
+        radius and next-lane Y permit.
+        """
+        r = self.turn_radius
+        upper = transition_idx < self.upper_return_count
+        out = [(self._x1, ya, 0.0)]
+
+        if upper:
+            outside_y = max(ya, yb) + 2.0 * r
+            self._sample_arc(
+                (self._x1, ya + r), (self._x1, ya), (self._x1 + r, ya + r),
+                1.0, r, self.waypoint_step, out)
+            self._append_line_points(
+                out, (self._x1 + r, ya + r), (self._x1 + r, outside_y - r),
+                math.pi / 2.0)
+            self._sample_arc(
+                (self._x1, outside_y - r), (self._x1 + r, outside_y - r),
+                (self._x1, outside_y), 1.0, r, self.waypoint_step, out)
+            self._append_line_points(
+                out, (self._x1, outside_y), (self._x0, outside_y), math.pi)
+            self._sample_arc(
+                (self._x0, outside_y - r), (self._x0, outside_y),
+                (self._x0 - r, outside_y - r), 1.0, r, self.waypoint_step, out)
+            self._append_line_points(
+                out, (self._x0 - r, outside_y - r), (self._x0 - r, yb + r),
+                -math.pi / 2.0)
+            self._sample_arc(
+                (self._x0, yb + r), (self._x0 - r, yb + r), (self._x0, yb),
+                1.0, r, self.waypoint_step, out)
+        else:
+            outside_y = min(ya, yb) - 2.0 * r
+            self._sample_arc(
+                (self._x1, ya - r), (self._x1, ya), (self._x1 + r, ya - r),
+                -1.0, r, self.waypoint_step, out)
+            self._append_line_points(
+                out, (self._x1 + r, ya - r), (self._x1 + r, outside_y + r),
+                -math.pi / 2.0)
+            self._sample_arc(
+                (self._x1, outside_y + r), (self._x1 + r, outside_y + r),
+                (self._x1, outside_y), -1.0, r, self.waypoint_step, out)
+            self._append_line_points(
+                out, (self._x1, outside_y), (self._x0, outside_y), math.pi)
+            self._sample_arc(
+                (self._x0, outside_y + r), (self._x0, outside_y),
+                (self._x0 - r, outside_y + r), -1.0, r, self.waypoint_step, out)
+            self._append_line_points(
+                out, (self._x0 - r, outside_y + r), (self._x0 - r, yb - r),
+                math.pi / 2.0)
+            self._sample_arc(
+                (self._x0, yb - r), (self._x0 - r, yb - r), (self._x0, yb),
+                -1.0, r, self.waypoint_step, out)
+        return out
+
     def _teardrop(self, xe, ya, yb, s, r, step):
-        """Forward-only minimum-radius loop (Dubins LRL/RLR) that repositions a lane end at
-        (xe, ya) heading outward (s=+1 → +x, s=-1 → -x) to (xe, yb) heading inward, keeping
-        every arc ≥ r. Used for the between-pass deadhead: it shifts the fine (< 2r) pass
-        offset locally — bulges outward ≈ (√3+1)·r — instead of looping around the whole area.
-        Falls back to a plain semicircle when |Δy| ≥ 2r (gap already wide enough)."""
+        """Half-circle (D-curve) that repositions a lane end at (xe, ya) heading outward
+        (s=+1 → +x, s=-1 → -x) to (xe, yb) heading inward. Radius = |dy|/2 — the unique
+        semicircle that fits both endpoints. Symmetric with the in-pass arc turns on the
+        opposite rail. Bulge = |dy|/2 outward (vs (√3+1)·r ≈ 4× larger for the old LRL)."""
         d_local = (yb - ya) if s > 0 else (ya - yb)
 
         def to_global(lx, ly, lyaw):
@@ -818,24 +928,13 @@ class CoverageFollowWaypoints(Node):
         if abs(d_local) < 1e-6:
             return [(xe, yb, math.pi if s > 0 else 0.0)]
         loc = [(0.0, 0.0, 0.0)]
-        if abs(d_local) >= 2.0 * r:                       # wide gap → semicircle (radius ≥ r)
-            self._sample_arc((0.0, d_local / 2.0), (0.0, 0.0), (0.0, d_local),
-                             1.0 if d_local > 0 else -1.0, abs(d_local) / 2.0, step, loc)
-        else:                                             # tight gap → LRL/RLR teardrop
-            sg = 1.0 if d_local > 0 else -1.0
-            c1 = (0.0, sg * r)
-            c2 = (0.0, d_local - sg * r)
-            half = abs(c1[1] - c2[1]) / 2.0
-            xm = math.sqrt(max(0.0, (2.0 * r) ** 2 - half * half))
-            cm = (xm, d_local / 2.0)
-            t1 = ((c1[0] + cm[0]) / 2.0, (c1[1] + cm[1]) / 2.0)
-            t2 = ((cm[0] + c2[0]) / 2.0, (cm[1] + c2[1]) / 2.0)
-            self._sample_arc(c1, (0.0, 0.0), t1, sg, r, step, loc)
-            self._sample_arc(cm, t1, t2, -sg, r, step, loc)
-            self._sample_arc(c2, t2, (0.0, d_local), sg, r, step, loc)
+        self._sample_arc((0.0, d_local / 2.0), (0.0, 0.0), (0.0, d_local),
+                         1.0 if d_local > 0 else -1.0, abs(d_local) / 2.0, step, loc)
         return [to_global(*p) for p in loc]
 
     def _deadhead_start(self, end_x):
+        if self.coverage_path_mode == 'same_direction_loops':
+            return self._x0, True
         at_right = abs(end_x - self._x1) < abs(end_x - self._x0)
         if self.coverage_path_mode == 'multipass_boustrophedon':
             # Enter the next pass from the opposite end after following the outside perimeter.
@@ -891,17 +990,27 @@ class CoverageFollowWaypoints(Node):
         self._deadhead_next_y = next_y
         self._deadhead_new_forward = new_forward
 
-        pts = self._deadhead_path(a, (start_x, next_y))
+        if self.coverage_path_mode == 'same_direction_loops':
+            pts = self._same_direction_return_loop(
+                self._current_y, next_y, self._lane_idx - 1)
+        else:
+            pts = self._deadhead_path(a, (start_x, next_y))
         poses = [
             self._pose(*self._to_map(lx, ly), self.area.yaw + lyaw)
             for lx, ly, lyaw in pts
         ]
+        loop_bounds = ''
+        if self.coverage_path_mode == 'same_direction_loops':
+            side = 'upper' if (self._lane_idx - 1) < self.upper_return_count else 'lower'
+            loop_bounds = (
+                f' side={side} local_y={min(p[1] for p in pts):.2f}..'
+                f'{max(p[1] for p in pts):.2f}m')
 
         self.get_logger().info(
             f'Deadhead → pass {self._lane_pass[self._lane_idx] + 1} '
             f'lane {self._lane_idx + 1}/{len(self._lane_ys)}: {len(poses)} poses  '
             f'({a[0]:.2f},{a[1]:.2f})→({start_x:.2f},{next_y:.2f})  '
-            f'mode={self.coverage_path_mode} style={self.deadhead_style}')
+            f'mode={self.coverage_path_mode} style={self.deadhead_style}{loop_bounds}')
 
         goal = NavigateThroughPoses.Goal()
         goal.poses = poses
